@@ -6025,9 +6025,9 @@ let
     inherit fetchurl stdenv;
   };
 
-  kernelHeaders_2_6_25 = import ../os-specific/linux/kernel-headers/2.6.25.4.nix {
-    inherit fetchurl stdenv;
-  };
+  #kernelHeaders_2_6_25 = import ../os-specific/linux/kernel-headers/2.6.25.4.nix {
+  #  inherit fetchurl stdenv;
+  #};
 
   kernelHeaders_2_6_26 = import ../os-specific/linux/kernel-headers/2.6.26.2.nix {
     inherit fetchurl stdenv;
@@ -6197,27 +6197,27 @@ let
     ];
   };
 
-  kernel_2_6_25 = import ../os-specific/linux/kernel/linux-2.6.25.nix {
-    inherit fetchurl stdenv perl mktemp module_init_tools;
-    kernelPatches = [
-      { name = "fbcondecor-0.9.4-2.6.25-rc6";
-        patch = fetchurl {
-          url = http://dev.gentoo.org/~spock/projects/fbcondecor/archive/fbcondecor-0.9.4-2.6.25-rc6.patch;
-          sha256 = "1wm94n7f0qyb8xvafip15r158z5pzw7zb7q8hrgddb092c6ibmq8";
-        };
-        extraConfig = "CONFIG_FB_CON_DECOR=y";
-        features = { fbConDecor = true; };
-      }
-      { name = "sec_perm-2.6.24";
-        patch = ../os-specific/linux/kernel/sec_perm-2.6.24.patch;
-        features = { secPermPatch = true; };
-      }
-    ];
-    extraConfig =
-      lib.optional (getConfig ["kernel" "timer_stats"] false) "CONFIG_TIMER_STATS=y" ++
-      lib.optional (getConfig ["kernel" "no_irqbalance"] false) "# CONFIG_IRQBALANCE is not set" ++
-      [(getConfig ["kernel" "addConfig"] "")];
-  };
+  #kernel_2_6_25 = import ../os-specific/linux/kernel/linux-2.6.25.nix {
+  #  inherit fetchurl stdenv perl mktemp module_init_tools;
+  #  kernelPatches = [
+  #    { name = "fbcondecor-0.9.4-2.6.25-rc6";
+  #      patch = fetchurl {
+  #        url = http://dev.gentoo.org/~spock/projects/fbcondecor/archive/fbcondecor-0.9.4-2.6.25-rc6.patch;
+  #        sha256 = "1wm94n7f0qyb8xvafip15r158z5pzw7zb7q8hrgddb092c6ibmq8";
+  #      };
+  #      extraConfig = "CONFIG_FB_CON_DECOR=y";
+  #      features = { fbConDecor = true; };
+  #    }
+  #    { name = "sec_perm-2.6.24";
+  #      patch = ../os-specific/linux/kernel/sec_perm-2.6.24.patch;
+  #      features = { secPermPatch = true; };
+  #    }
+  #  ];
+  #  extraConfig =
+  #    lib.optional (getConfig ["kernel" "timer_stats"] false) "CONFIG_TIMER_STATS=y" ++
+  #    lib.optional (getConfig ["kernel" "no_irqbalance"] false) "# CONFIG_IRQBALANCE is not set" ++
+  #    [(getConfig ["kernel" "addConfig"] "")];
+  #};
 
   kernel_2_6_23 = import ../os-specific/linux/kernel/linux-2.6.23.nix {
     inherit fetchurl stdenv perl mktemp module_init_tools;
@@ -6417,12 +6417,13 @@ let
 
   # Build the kernel modules for the some of the kernels.
   kernelPackages_2_6_23 = recurseIntoAttrs (kernelPackagesFor kernel_2_6_23);
-  kernelPackages_2_6_25 = recurseIntoAttrs (kernelPackagesFor kernel_2_6_25);
+  #kernelPackages_2_6_25 = recurseIntoAttrs (kernelPackagesFor kernel_2_6_25);
   kernelPackages_2_6_26 = recurseIntoAttrs (kernelPackagesFor kernel_2_6_26);
   kernelPackages_2_6_27 = recurseIntoAttrs (kernelPackagesFor kernel_2_6_27);
 
   # The current default kernel / kernel modules.
-  kernelPackages = kernelPackages_2_6_25;
+  #kernelPackages = kernelPackages_2_6_25;
+  kernelPackages = kernelPackages_2_6_27;
   #kernel = kernelPackages.kernel;
 
   customKernel = composedArgsAndFun (lib.sumTwoArgs (import ../os-specific/linux/kernel/linux.nix) {
