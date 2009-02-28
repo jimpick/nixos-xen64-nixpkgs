@@ -8091,6 +8091,10 @@ let
     inherit fetchurl stdenv;
   };
 
+  hellojim = import ../jim-custom/hello-jim {
+    inherit fetchurl stdenv;
+  };
+
   i810switch = import ../applications/misc/i810 {
     inherit fetchurl stdenv pciutils;
   };
