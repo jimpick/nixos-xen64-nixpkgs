@@ -28,6 +28,7 @@ let
       bzip2
       cabextract
       cdrkit
+      cedet
       chatzilla
       cksfv
       #compiz
@@ -73,10 +74,12 @@ let
       gnum4
       gnumake
       gnupatch
+      gnupg2
       gnused
       gnutar
       gnutls
       gphoto2
+      gprolog
       gsl
       guile
       gqview
@@ -97,6 +100,7 @@ let
       kbd
       kcachegrind
       kdebase
+      klibc
       ktorrent
       kvm
       less
@@ -122,6 +126,7 @@ let
       #mythtv
       nano
       netcat
+      nfsUtils
       nix
       nixUnstable
       nss_ldap
@@ -138,9 +143,11 @@ let
       par2cmdline
       pciutils
       perl
+      perlTaskCatalystTutorial
       php
       pinentry
       pkgconfig
+      portmap
       postgresql
       procps
       pwdutils
@@ -149,15 +156,17 @@ let
       qt4
       #quake3demo
       readline
-      reiserfsprogs
       rLang
+      reiserfsprogs
       rogue
+      rpm
       rsync
       ruby
       screen
       seccure
       slim
       spidermonkey
+      splashutils_13
       ssmtp
       strace
       su
@@ -171,6 +180,7 @@ let
       sysvinit
       sysvtools
       tcpdump
+      teeworlds
       #tetex
       texLive
       texLiveBeamer
@@ -204,6 +214,7 @@ let
       xsel
       xterm
       zdelta
+      zile
       zip
       ;
     inherit (pkgs.xorg)
@@ -235,33 +246,51 @@ let
       gnomeutils
       metacity
       ;
+    kde42 = pkgs.recurseIntoAttrs {
+      inherit (pkgs.kde42)
+        kdelibs
+        kdebase_workspace
+        kdebase
+        kdebase_runtime
+	kdegraphics
+	kdemultimedia
+	kdegames
+	kdeadmin
+	kdeedu
+	kdeartwork
+	kdesdk
+	kdeutils
+	kdetoys
+	kdewebdev
+	kdenetwork
+	kdepim
+	kdeplasma_addons
+        ;
+    };
     kernelPackages_2_6_23 = pkgs.recurseIntoAttrs {
       inherit (pkgs.kernelPackages_2_6_23)
         iwlwifi
         kernel
-        klibc
-        splashutils
         ;
     };
     kernelPackages_2_6_25 = pkgs.recurseIntoAttrs {
       inherit (pkgs.kernelPackages_2_6_25)
         kernel
-        klibc
-#        splashutils
         ;
     };
     kernelPackages_2_6_26 = pkgs.recurseIntoAttrs {
       inherit (pkgs.kernelPackages_2_6_26)
         kernel
-        klibc
-#        splashutils
         ;
     };
     kernelPackages_2_6_27 = pkgs.recurseIntoAttrs {
       inherit (pkgs.kernelPackages_2_6_27)
         kernel
-        klibc
-#        splashutils
+        ;
+    };
+    kernelPackages_2_6_28 = pkgs.recurseIntoAttrs {
+      inherit (pkgs.kernelPackages_2_6_28)
+        kernel
         ;
     };
   };
@@ -291,6 +320,7 @@ let
       pidgin
       postgresql_jdbc
       sdf
+      splashutils_15
       strategoxt
       strategoxtUtils
       syslinux

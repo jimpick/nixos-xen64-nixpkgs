@@ -5,7 +5,7 @@ with pkgs;
 rec {
 
 
-  inherit (kernelPackages_2_6_26) kernel klibcShrunk;
+  inherit (kernelPackages_2_6_26) kernel;
 
 
   modulesClosure = makeModulesClosure {
@@ -797,27 +797,47 @@ rec {
       fullName = "Ubuntu 8.10 Intrepid (amd64)";
       packagesList = fetchurl {
         url = mirror://ubuntu/dists/intrepid/main/binary-amd64/Packages.bz2;
-        sha1 = "01b2f3842cbdd5834446ddf91691bcf60f59a726dcefa23fb5b93fdc8ea7e27f";
+        sha256 = "01b2f3842cbdd5834446ddf91691bcf60f59a726dcefa23fb5b93fdc8ea7e27f";
       };
       urlPrefix = mirror://ubuntu;
     } // args);
          
     debian40i386 = args: makeImageFromDebDist ({
-      name = "debian-4.0r5-etch-i386";
-      fullName = "Debian 4.0r5 Etch (i386)";
+      name = "debian-4.0r7-etch-i386";
+      fullName = "Debian 4.0r7 Etch (i386)";
       packagesList = fetchurl {
         url = mirror://debian/dists/etch/main/binary-i386/Packages.bz2;
-        sha256 = "37a5c17fd8d62b1d9a0264a702025a4381c1a8751e2550d101957d8fa724a6f4";
+        sha256 = "155c1d1b4ce54de6c8134ab0154c2a476ae40cc5899109f3f95fecd5e002c50d";
       };
       urlPrefix = mirror://debian;
     } // args);
         
     debian40x86_64 = args: makeImageFromDebDist ({
-      name = "debian-4.0r5-etch-amd64";
-      fullName = "Debian 4.0r5 Etch (amd64)";
+      name = "debian-4.0r7-etch-amd64";
+      fullName = "Debian 4.0r7 Etch (amd64)";
       packagesList = fetchurl {
         url = mirror://debian/dists/etch/main/binary-amd64/Packages.bz2;
-        sha256 = "244dc892f89f2f73ce8372cdf1f1d450b00c0e95196927ef7f99715f0d119d5b";
+        sha256 = "3ab73a45781651a78c824b4f281de91b1aa6974d63470f40525933d848183e44";
+      };
+      urlPrefix = mirror://debian;
+    } // args);
+
+    debian50i386 = args: makeImageFromDebDist ({
+      name = "debian-5.0-lenny-i386";
+      fullName = "Debian 5.0 Lenny (i386)";
+      packagesList = fetchurl {
+        url = mirror://debian/dists/lenny/main/binary-i386/Packages.bz2;
+        sha256 = "afbead64fb4820e50294686cd3ccdff91026b214aabec3f212f9001482001061";
+      };
+      urlPrefix = mirror://debian;
+    } // args);
+        
+    debian50x86_64 = args: makeImageFromDebDist ({
+      name = "debian-5.0-lenny-amd64";
+      fullName = "Debian 5.0 Lenny (amd64)";
+      packagesList = fetchurl {
+        url = mirror://debian/dists/lenny/main/binary-amd64/Packages.bz2;
+        sha256 = "73d74454d687dfbdfef1abbe4bd9c251119f38ab8d371a593aa271bfa227ed2b";
       };
       urlPrefix = mirror://debian;
     } // args);
@@ -896,6 +916,11 @@ rec {
     "util-linux" 
     "file"
     "dpkg-dev"
+    # Needed because it provides /etc/login.defs, whose absence causes
+    # the "passwd" post-installs script to fail.
+    "login"
+    # For shutting up some messages during some post-install scripts:
+    "mktemp"
   ];
 
 
@@ -948,6 +973,8 @@ rec {
     ubuntu810x86_64 = diskImageFuns.ubuntu810x86_64 { packages = commonDebianPackages; };
     debian40i386 = diskImageFuns.debian40i386 { packages = commonDebianPackages; };
     debian40x86_64 = diskImageFuns.debian40x86_64 { packages = commonDebianPackages; };
+    debian50i386 = diskImageFuns.debian50i386 { packages = commonDebianPackages; };
+    debian50x86_64 = diskImageFuns.debian50x86_64 { packages = commonDebianPackages; };
 
   };
 

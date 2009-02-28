@@ -1,27 +1,24 @@
-{ stdenv, fetchurl, lzma, pkgconfig, gtk, pango, perl, python, zip, libIDL
+{ stdenv, fetchurl, pkgconfig, gtk, pango, perl, python, zip, libIDL
 , libjpeg, libpng, zlib, cairo, dbus, dbus_glib, bzip2, xlibs
 , gnomevfs, libgnomeui
 , freetype, fontconfig
 , application ? "browser" }:
 
-let version = "3.0.4-g1"; in
+let version = "3.0.6-g1"; in
 stdenv.mkDerivation {
   name = "icecat-${version}";
 
   src = fetchurl {
-    url = "mirror://gnu/gnuzilla/${version}/icecat-${version}.tar.lzma";
-    sha256 = "1hxjihzmwf2jch8vy42j0n3db5af96dyglafyy605fagaq5xnizc";
+    url = "mirror://gnu/gnuzilla/${version}/icecat-${version}.tar.bz2";
+    sha256 = "0lcxvlviwgaj9w6ywn0656a2y3qdxdlw0mf5f9ljdd9jpw4fxjih";
   };
 
   buildInputs = [
-    lzma
     libgnomeui gnomevfs
     pkgconfig gtk perl zip libIDL libjpeg libpng zlib cairo bzip2
     python dbus dbus_glib pango freetype fontconfig
     xlibs.libXi xlibs.libX11 xlibs.libXrender xlibs.libXft xlibs.libXt
   ];
-
-  unpackCmd = "lzma -d < $src | tar xv";
 
   patches = [ ./skip-gre-registration.patch ];
 

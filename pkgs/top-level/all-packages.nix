@@ -2,7 +2,10 @@
    imports the functions that build the various packages, and calls
    them with appropriate arguments.  The result is a set of all the
    packages in the Nix Packages collection for some particular
-   platform. */
+   platform.
+
+   You want to get to know where to add a new package ?
+   Have a look at nixpkgs/maintainers/docs/classification.txt */
 
 
 { # The system (e.g., `i686-linux') for which to build the packages.
@@ -103,104 +106,10 @@ let
 
   inherit lib config getConfig;
 
-  # Override the compiler in stdenv for specific packages.
-  overrideGCC = stdenv: gcc: stdenv //
-    { mkDerivation = args: stdenv.mkDerivation (args // { NIX_GCC = gcc; });
-    };
-
-  # Add some arbitrary packages to buildInputs for specific packages.
-  # Used to override packages in stenv like Make.  Should not be used
-  # for other dependencies.
-  overrideInStdenv = stdenv: pkgs: stdenv //
-    { mkDerivation = args: stdenv.mkDerivation (args //
-        { buildInputs = (if args ? buildInputs then args.buildInputs else []) ++ pkgs; }
-      );
-    };
-
   addAttrsToDerivation = extraAttrs: stdenv: stdenv //
     { mkDerivation = args: stdenv.mkDerivation (args // extraAttrs); };
 
-  # Override the setup script of stdenv.  Useful for testing new
-  # versions of the setup script without causing a rebuild of
-  # everything.
-  #
-  # Example:
-  #   randomPkg = import ../bla { ...
-  #     stdenv = overrideSetup stdenv ../stdenv/generic/setup-latest.sh;
-  #   };
-  overrideSetup = stdenv: setup: stdenv.regenerate setup;
-
   stdenvNew = overrideSetup stdenv ../stdenv/generic/setup-new.sh;
-
-  # Return a modified stdenv that uses dietlibc to create small
-  # statically linked binaries.
-  useDietLibC = stdenv: stdenv //
-    { mkDerivation = args: stdenv.mkDerivation (args // {
-        NIX_CFLAGS_LINK = "-static";
-
-        # libcompat.a contains some commonly used functions.
-        NIX_LDFLAGS = "-lcompat";
-
-        # These are added *after* the command-line flags, so we'll
-        # always optimise for size.
-        NIX_CFLAGS_COMPILE =
-          (if args ? NIX_CFLAGS_COMPILE then args.NIX_CFLAGS_COMPILE else "")
-          + " -Os -s -D_BSD_SOURCE=1";
-
-        configureFlags =
-          (if args ? configureFlags then args.configureFlags else "")
-          + " --disable-shared"; # brrr...
-
-        NIX_GCC = import ../build-support/gcc-wrapper {
-          inherit stdenv;
-          libc = dietlibc;
-          inherit (gcc) gcc binutils name nativeTools nativePrefix;
-          nativeLibc = false;
-        };
-      });
-      isDietLibC = true;
-    } // {inherit fetchurl;};
-
-  # Return a modified stdenv that uses klibc to create small
-  # statically linked binaries.
-  useKlibc = stdenv: klibc: stdenv //
-    { mkDerivation = args: stdenv.mkDerivation (args // {
-        NIX_CFLAGS_LINK = "-static";
-
-        # These are added *after* the command-line flags, so we'll
-        # always optimise for size.
-        NIX_CFLAGS_COMPILE =
-          (if args ? NIX_CFLAGS_COMPILE then args.NIX_CFLAGS_COMPILE else "")
-          + " -Os -s";
-
-        configureFlags =
-          (if args ? configureFlags then args.configureFlags else "")
-          + " --disable-shared"; # brrr...
-
-        NIX_GCC = runCommand "klibc-wrapper" {} ''
-          ensureDir $out/bin
-          ln -s ${klibc}/bin/klcc $out/bin/gcc
-          ln -s ${klibc}/bin/klcc $out/bin/cc
-          ensureDir $out/nix-support
-          echo 'PATH=$PATH:${stdenv.gcc.binutils}/bin' > $out/nix-support/setup-hook
-        '';
-      });
-      isKlibc = true;
-      isStatic = true;
-    } // {inherit fetchurl;};
-
-  # Return a modified stdenv that tries to build statically linked
-  # binaries.
-  makeStaticBinaries = stdenv: stdenv //
-    { mkDerivation = args: stdenv.mkDerivation (args // {
-        NIX_CFLAGS_LINK = "-static";
-
-        configureFlags =
-          (if args ? configureFlags then args.configureFlags else "")
-          + " --disable-shared"; # brrr...
-      });
-      isStatic = true;
-    } // {inherit fetchurl;};
 
   # Applying this to an attribute set will cause nix-env to look
   # inside the set for derivations.
@@ -318,6 +227,10 @@ let
       overrideGCC stdenv gcc43multi
     else
       stdenv;
+
+  inherit (import ../stdenv/adapters.nix {inherit (pkgs) dietlibc fetchurl runCommand;})
+    overrideGCC overrideInStdenv overrideSetup
+    useDietLibC useKlibc makeStaticBinaries;
 
 
   ### BUILD SUPPORT
@@ -474,12 +387,16 @@ let
       done < graph
     '';
 
-            
+
   ### TOOLS
 
 
   aefs = import ../tools/security/aefs {
     inherit fetchurl stdenv fuse;
+  };
+
+  aircrackng = import ../tools/networking/aircrack-ng {
+    inherit fetchurl stdenv libpcap openssl zlib wirelesstools;
   };
 
   amule = import ../tools/networking/p2p/amule {
@@ -519,6 +436,11 @@ let
 
   bfr = import ../tools/misc/bfr {
     inherit fetchurl stdenv perl;
+  };
+
+  syslogng = import ../tools/misc/syslog-ng {
+    inherit fetchurl stdenv eventlog pkgconfig;
+    inherit (gtkLibs) glib;
   };
 
   asciidoc = import ../tools/typesetting/asciidoc {
@@ -561,12 +483,24 @@ let
     inherit fetchurl stdenv;
   };
 
+  ccrypt = import ../tools/security/ccrypt {
+    inherit fetchurl stdenv;
+  };
+
+  cdecl = import ../development/tools/cdecl {
+    inherit fetchurl stdenv yacc flex readline;
+  };
+
   cdrdao = import ../tools/cd-dvd/cdrdao {
     inherit fetchurl stdenv;
   };
 
   cdrkit = import ../tools/cd-dvd/cdrkit {
     inherit fetchurl stdenv cmake libcap zlib bzip2;
+  };
+
+  cedet = import ../applications/editors/emacs-modes/cedet {
+    inherit fetchurl stdenv emacs;
   };
 
   checkinstall = import ../tools/package-management/checkinstall {
@@ -607,6 +541,10 @@ let
     inherit fetchurl stdenv;
   };
 
+  cromfs = import ../tools/archivers/cromfs {
+    inherit fetchurl stdenv pkgconfig fuse perl;
+  };
+
   cron = import ../tools/system/cron { # see also fcron
     inherit fetchurl;
     stdenv = stdenvNew;
@@ -624,7 +562,20 @@ let
     inherit (gtkLibs) glib;
   };
 
+  dar = import ../tools/archivers/dar {
+    inherit fetchurl stdenv zlib bzip2 openssl;
+  };
+
   ddrescue = builderDefsPackage (selectVersion ../tools/system/ddrescue "1.8") {};
+
+  desktop_file_utils = import ../tools/misc/desktop-file-utils {
+    inherit stdenv fetchurl pkgconfig;
+    inherit (gtkLibs) glib;
+  };
+
+  dev86 = import ../development/compilers/dev86 {
+    inherit fetchurl stdenv;
+  };
 
   dnsmasq = import ../tools/networking/dnsmasq {
     # TODO i18n can be installed as well, implement it?
@@ -651,12 +602,16 @@ let
             gnused groff libxml2 libxslt makeWrapper;
   };
 
-  dosfstools = composedArgsAndFun (selectVersion ../tools/misc/dosfstools "3.00deb") {
+  dosfstools = composedArgsAndFun (import ../tools/misc/dosfstools) {
     inherit builderDefs;
   };
 
   dvdplusrwtools = import ../tools/cd-dvd/dvd+rw-tools {
     inherit fetchurl stdenv cdrkit m4;
+  };
+
+  eieio = import ../applications/editors/emacs-modes/eieio {
+    inherit fetchurl stdenv emacs;
   };
 
   enscript = import ../tools/text/enscript {
@@ -811,7 +766,7 @@ let
   };
 
   groff = import ../tools/text/groff {
-    inherit fetchurl stdenv;
+    inherit fetchurl stdenv ghostscript perl;
   };
 
   grub = import ../tools/misc/grub {
@@ -855,11 +810,6 @@ let
     inherit fetchurl stdenv ocaml;
   };
 
-  hg2git = import ../tools/misc/hg2git {
-    inherit fetchurl stdenv mercurial coreutils git makeWrapper;
-    inherit (bleedingEdgeRepos) sourceByName;
-  };
-
   highlight = builderDefsPackage (selectVersion ../tools/text/highlight "2.6.10") {
     inherit getopt;
   };
@@ -876,6 +826,10 @@ let
     flex = flex2533;
   };
   */
+
+  iasl = import ../development/compilers/iasl {
+    inherit fetchurl stdenv bison flex;
+  };
 
   idutils = import ../tools/misc/idutils {
     inherit fetchurl stdenv emacs;
@@ -912,6 +866,10 @@ let
 
   keychain = import ../tools/misc/keychain {
     inherit fetchurl stdenv;
+  };
+
+  kismet = import ../applications/networking/sniffers/kismet {
+    inherit fetchurl stdenv libpcap ncurses expat;
   };
 
   ktorrent = import ../tools/networking/p2p/ktorrent {
@@ -965,6 +923,11 @@ let
     inherit (xlibs) libX11;
   };
 
+  mcabber = import ../applications/networking/instant-messengers/mcabber {
+    inherit fetchurl stdenv openssl ncurses pkgconfig;
+    inherit (gtkLibs) glib;
+  };
+
   mdbtools = builderDefsPackage (selectVersion ../tools/misc/mdbtools "0.6-pre1") {
     inherit readline pkgconfig bison;
     inherit (gtkLibs) glib;
@@ -978,6 +941,10 @@ let
 
   mktemp = import ../tools/security/mktemp {
     inherit fetchurl stdenv;
+  };
+
+  mldonkey = import ../applications/networking/p2p/mldonkey {
+    inherit fetchurl stdenv ocaml zlib ncurses;
   };
 
   mpage = import ../tools/text/mpage {
@@ -1012,6 +979,10 @@ let
     inherit fetchurl stdenv;
   };
 
+  netpbm = import ../tools/graphics/netpbm {
+    inherit stdenv fetchsvn libjpeg libpng zlib flex perl libxml2;
+  };
+
   netselect = import ../tools/networking/netselect {
     inherit fetchurl stdenv;
   };
@@ -1030,6 +1001,10 @@ let
 
   nssmdns = import ../tools/networking/nss-mdns {
     inherit fetchurl stdenv avahi;
+  };
+
+  nylon = import ../tools/networking/nylon {
+    inherit fetchurl stdenv libevent;
   };
 
   openssh = import ../tools/networking/openssh {
@@ -1080,6 +1055,14 @@ let
     inherit (xlibs) libX11;
   };
 
+  /* WARNING: this version is unsuitable for using with a setuid wrapper */
+  ppp = builderDefsPackage (import ../tools/networking/ppp) {
+  };
+
+  proxychains = import ../tools/networking/proxychains {
+    inherit fetchurl stdenv;
+  };
+
   proxytunnel = import ../tools/misc/proxytunnel {
     inherit fetchurl stdenv openssl;
   };
@@ -1112,6 +1095,10 @@ let
     inherit (gnome) gnomevfs GConf;
   };
 
+  remind = import ../tools/misc/remind {
+    inherit fetchurl stdenv;
+  };
+
   replace = import ../tools/text/replace {
     inherit fetchurl stdenv;
   };
@@ -1133,6 +1120,10 @@ let
 
   rlwrap = composedArgsAndFun (selectVersion ../tools/misc/rlwrap "0.28") {
     inherit builderDefs readline;
+  };
+
+  rpPPPoE = builderDefsPackage (import ../tools/networking/rp-pppoe) {
+    inherit ppp;
   };
 
   rpm = import ../tools/package-management/rpm {
@@ -1165,6 +1156,10 @@ let
   seccureUser = lowPrio (seccure.passthru.function {
     makeFlags = [" CFLAGS+=-DNOMEMLOCK "];
   });
+
+  semantic = import ../applications/editors/emacs-modes/semantic {
+    inherit fetchurl stdenv emacs eieio;
+  };
 
   sharutils = selectVersion ../tools/archivers/sharutils "4.6.3" {
     inherit fetchurl stdenv;
@@ -1218,6 +1213,10 @@ let
     inherit fetchurl stdenv pam;
   };
 
+  system_config_printer = import ../tools/misc/system-config-printer {
+    inherit stdenv fetchurl perl perlXMLParser autoconf automake intltool gettext desktop_file_utils;
+  };
+
   tcpdump = import ../tools/networking/tcpdump {
     inherit fetchurl stdenv libpcap;
   };
@@ -1262,10 +1261,8 @@ let
   };
 
   truecrypt = import ../applications/misc/truecrypt {
-    inherit fetchurl stdenv pkgconfig fuse;
-    inherit (gtkLibs) gtk;
-    inherit (xorg) libSM;
-    glibc = stdenv.gcc.libc;
+    inherit fetchurl stdenv pkgconfig fuse devicemapper;
+    wxGTK = wxGTK28;
   };
 
   ttmkfdir = import ../tools/misc/ttmkfdir {
@@ -1294,7 +1291,7 @@ let
     inherit (gtkLibs) glib;
   };
 
-  wget = composedArgsAndFun (selectVersion ../tools/networking/wget "1.11") {
+  wget = import ../tools/networking/wget {
     inherit fetchurl stdenv gettext;
   };
 
@@ -1352,6 +1349,10 @@ let
 
   zdelta = import ../tools/compression/zdelta {
     inherit fetchurl stdenv;
+  };
+
+  zile = import ../applications/editors/zile {
+    inherit fetchurl stdenv ncurses help2man;
   };
 
   zip = import ../tools/archivers/zip {
@@ -1750,6 +1751,10 @@ let
     };
   */
 
+  gprolog = import ../development/compilers/gprolog {
+    inherit fetchurl stdenv;
+  };
+
   gwt = import ../development/compilers/gwt {
     inherit stdenv fetchurl;
     inherit (gtkLibs) glib gtk pango atk;
@@ -2096,8 +2101,8 @@ let
   };
 
   # new python and lib proposal
-  # - adding a python lib to buildinputs should be enough 
-  #   (handles .pth files by patching site.py   
+  # - adding a python lib to buildinputs should be enough
+  #   (handles .pth files by patching site.py
   #    while introducing NIX_PYTHON_SITES describing list of modules)
   # - adding pyCheck = "import foo" test scripts to ensure libraries can be imported
   # - providing pythonWrapper so that you can run python and import the selected libraries
@@ -2171,6 +2176,15 @@ let
 
   ### DEVELOPMENT / MISC
 
+  avrgcclibc = import ../development/misc/avr-gcc-with-avr-libc {
+    inherit fetchurl stdenv writeTextFile gnumake coreutils gnutar bzip2
+      gnugrep gnused gawk;
+    inherit gcc;
+  };
+
+  avr8burnomat = import ../development/misc/avr8-burn-omat {
+    inherit fetchurl stdenv unzip;
+  };
 
   /*
   toolbus = import ../development/interpreters/toolbus {
@@ -2234,6 +2248,10 @@ let
     inherit fetchurl stdenv perl m4 lzma;
   };
 
+  autoconf213 = import ../development/tools/misc/autoconf/2.13.nix {
+    inherit fetchurl stdenv perl m4 lzma;
+  };
+
   automake = automake19x;
 
   automake17x = import ../development/tools/misc/automake/automake-1.7.x.nix {
@@ -2288,8 +2306,12 @@ let
   };
 
   cmake = import ../development/tools/build-managers/cmake {
-    inherit fetchurl stdenv replace;
+    inherit fetchurl stdenv replace ncurses;
   };
+
+  cmakeUnstable = lowPrio (import ../development/tools/build-managers/cmake/2.6.3.nix {
+    inherit fetchurl stdenv replace ncurses;
+  });
 
   cproto = import ../development/tools/misc/cproto {
     inherit fetchurl stdenv flex bison;
@@ -2499,6 +2521,10 @@ let
       inherit fetchurl stdenv;
     });
 
+  ragel = import ../development/tools/parsing/ragel {
+    inherit composableDerivation fetchurl transfig texLive;
+  };
+
   # couldn't find the source yet
   selenium_rc_binary = import ../development/tools/selenium/remote-control {
     inherit fetchurl stdenv unzip;
@@ -2521,6 +2547,10 @@ let
     # Note: sdf2-bundle currently requires GNU make 3.80; remove
     # explicit dependency when this is fixed.
     stdenv = overrideInStdenv stdenv [gnumake380];
+  };
+
+  sloccount = import ../development/tools/misc/sloccount {
+    inherit fetchurl stdenv perl;
   };
 
   sparse = import ../development/tools/analysis/sparse {
@@ -2570,7 +2600,7 @@ let
   };
 
   gdb = import ../development/tools/misc/gdb {
-    inherit fetchurl stdenv ncurses gmp mpfr texinfo;
+    inherit fetchurl stdenv ncurses readline gmp mpfr texinfo;
   };
 
   valgrind = import ../development/tools/analysis/valgrind {
@@ -2690,7 +2720,7 @@ let
   boostVersionChoice = version: selectVersion ../development/libraries/boost version {
     inherit fetchurl stdenv icu expat zlib bzip2 python;
   };
-  boost = boostVersionChoice "1.37.0";
+  boost = boostVersionChoice "1.38.0";
 
   buddy = import ../development/libraries/buddy {
     inherit fetchurl stdenv;
@@ -2702,7 +2732,7 @@ let
   };
 
   cairomm = import ../development/libraries/cairomm {
-    inherit fetchurl stdenv pkgconfig cairo x11 fontconfig freetype;
+    inherit fetchurl stdenv pkgconfig cairo x11 fontconfig freetype libsigcxx;
   };
 
   chipmunk = builderDefsPackage (import ../development/libraries/chipmunk) {
@@ -2809,6 +2839,17 @@ let
     inherit fetchurl stdenv;
   };
 
+  extremetuxracer = builderDefsPackage (import ../games/extremetuxracer) {
+    inherit mesa tcl freeglut SDL SDL_mixer pkgconfig
+    	libpng gettext intltool;
+    inherit (xlibs) libX11 xproto libXi inputproto
+    	libXmu libXext xextproto libXt libSM libICE;
+  };
+
+  eventlog = import ../development/libraries/eventlog {
+    inherit fetchurl stdenv;
+  };
+
   facile = import ../development/libraries/facile {
     inherit fetchurl stdenv;
     # Actually, we don't need this version but we need native-code compilation
@@ -2851,6 +2892,14 @@ let
     flags = [ "useNixLibs" "threads" "shared" "gl" ];
   };
 
+  fmod = import ../development/libraries/fmod {
+    inherit stdenv fetchurl;
+  };
+
+  freeimage = import ../development/libraries/freeimage {
+    inherit fetchurl stdenv unzip;
+  };
+
   cfitsio = import ../development/libraries/cfitsio {
     inherit fetchurl stdenv;
   };
@@ -2885,6 +2934,10 @@ let
   gamin = import ../development/libraries/gamin {
     inherit fetchurl stdenv python pkgconfig;
     inherit (gtkLibs) glib;
+  };
+
+  gav = import ../games/gav {
+    inherit fetchurl stdenv SDL SDL_image SDL_mixer SDL_net;
   };
 
   gdbm = import ../development/libraries/gdbm {
@@ -3040,6 +3093,13 @@ let
     xineramaSupport = true;
   };
 
+  gtkLibs214 = import ../development/libraries/gtk-libs/2.14 {
+    inherit fetchurl stdenv pkgconfig gettext perl x11 jasper
+            libtiff libjpeg libpng cairo libsigcxx cairomm;
+    inherit (xlibs) libXinerama libXrandr;
+    xineramaSupport = true;
+  };
+
   gtkmozembedsharp = import ../development/libraries/gtkmozembed-sharp {
     inherit fetchurl stdenv mono pkgconfig monoDLLFixer;
     inherit (gnome) gtk;
@@ -3174,6 +3234,12 @@ let
     inherit fetchurl stdenv ncurses;
   };
 
+  libcanberra = import ../development/libraries/libcanberra {
+    inherit fetchurl stdenv pkgconfig libtool alsaLib pulseaudio libvorbis;
+    inherit (gtkLibs214) gtk gthread;
+    gstreamer = gst_all.gstreamer;
+  };
+
   libcdaudio = import ../development/libraries/libcdaudio {
     inherit fetchurl stdenv;
   };
@@ -3263,6 +3329,10 @@ let
     inherit fetchurl stdenv pkgconfig libusb libtool libexif libjpeg gettext;
   };
 
+  libical = import ../development/libraries/libical {
+    inherit stdenv fetchurl perl;
+  };
+
   libQGLViewer = import ../development/libraries/libqglviewer {
     inherit fetchurl stdenv;
     inherit qt4;
@@ -3329,6 +3399,10 @@ let
 
   libmpcdec = import ../development/libraries/libmpcdec {
     inherit fetchurl stdenv;
+  };
+
+  libmsn = import ../development/libraries/libmsn {
+    inherit stdenv fetchurl cmake openssl;
   };
 
   libmspack = import ../development/libraries/libmspack {
@@ -3479,6 +3553,7 @@ let
 
   log4cxx = import ../development/libraries/log4cxx {
     inherit fetchurl stdenv automake autoconf libtool cppunit libxml2 boost;
+    inherit apr aprutil db45 expat;
   };
 
   loudmouth = import ../development/libraries/loudmouth {
@@ -3571,6 +3646,10 @@ let
     inherit fetchurl stdenv zlib libxml2;
   };
 
+  opencascade = import ../development/libraries/opencascade {
+    inherit fetchurl stdenv mesa qt4 tcl tk;
+  };
+
   # this ctl version is needed by openexr_viewers
   openexr_ctl = import ../development/libraries/openexr_ctl {
     inherit fetchurl stdenv ilmbase ctl;
@@ -3626,12 +3705,15 @@ let
     qt4Support = getConfig [ "poppler" "qt4Support" ] false;
   };
 
-  popt = import ../development/libraries/popt {
-    inherit fetchurl stdenv gettext;
+  popplerQt4 = import ../development/libraries/poppler {
+    inherit fetchurl stdenv qt4 cairo freetype fontconfig zlib libjpeg
+      pkgconfig;
+    inherit (gtkLibs) glib gtk;
+    qt4Support = true;
   };
 
-  popt110 = import ../development/libraries/popt/popt-1.10.6.nix {
-    inherit fetchurl stdenv gettext libtool autoconf automake;
+  popt = import ../development/libraries/popt {
+    inherit fetchurl stdenv gettext;
   };
 
   proj = import ../development/libraries/proj.4 {
@@ -3640,6 +3722,19 @@ let
 
   pth = import ../development/libraries/pth {
     inherit fetchurl stdenv;
+  };
+
+  pthread_stubs = import ../development/libraries/pthread-stubs {
+    inherit fetchurl stdenv;
+  };
+
+  qt3gcc33 = import ../development/libraries/qt-3 {
+    stdenv = overrideGCC stdenv gcc33;
+    inherit fetchurl x11 zlib libjpeg libpng which mysql mesa;
+    inherit (xlibs) xextproto libXft libXrender libXrandr randrproto
+      libXmu libXinerama xineramaproto libXcursor;
+    openglSupport = false;
+    mysqlSupport = false;
   };
 
   qt3 = import ../development/libraries/qt-3 {
@@ -3748,8 +3843,7 @@ let
   };
 
   tapioca_qt = import ../development/libraries/tapioca-qt {
-    inherit fetchsvn stdenv cmake telepathy_qt;
-    qt = qt4;
+    inherit stdenv fetchurl cmake qt4 telepathy_qt;
   };
 
   tecla = import ../development/libraries/tecla {
@@ -3766,8 +3860,7 @@ let
   };
 
   telepathy_qt = import ../development/libraries/telepathy-qt {
-    inherit fetchsvn stdenv cmake;
-    qt = qt4;
+    inherit stdenv fetchurl cmake qt4;
   };
 
   tk = composedArgsAndFun (selectVersion ../development/libraries/tk "8.4.18") {
@@ -3782,6 +3875,15 @@ let
     inherit fetchurl stdenv unixODBC glibc libtool openssl zlib;
     inherit postgresql mysql sqlite;
   });
+
+  vtk = import ../development/libraries/vtk {
+    inherit stdenv fetchurl cmake mesa;
+    inherit (xlibs) libX11 xproto libXt;
+  };
+
+  vxl = import ../development/libraries/vxl {
+   inherit fetchurl stdenv cmake unzip libtiff expat zlib libpng libjpeg;
+  };
 
   webkit = builderDefsPackage (import ../development/libraries/webkit) {
     inherit (gtkLibs) gtk atk pango;
@@ -3803,7 +3905,7 @@ let
   wxGTK28fun = lib.sumArgs (import ../development/libraries/wxGTK-2.8);
 
   wxGTK28deps = wxGTK28fun {
-    inherit fetchurl stdenv pkgconfig;
+    inherit fetchurl stdenv pkgconfig mesa;
     inherit (gtkLibs) gtk;
     inherit (xlibs) libXinerama libSM libXxf86vm xf86vidmodeproto;
   };
@@ -4078,12 +4180,13 @@ let
       url = mirror://cpan/authors/id/C/CL/CLKAO/Algorithm-Annotate-0.10.tar.gz;
       sha256 = "1y92k4nqkscfwpriv8q7c90rjfj85lvwq1k96niv2glk8d37dcf9";
     };
+    propagatedBuildInputs = [perlAlgorithmDiff];
   };
 
-  perlAlgorithmDiff = buildPerlPackage {
-    name = "Algorithm-Diff-1.15";
+  perlAlgorithmDiff = buildPerlPackage rec {
+    name = "Algorithm-Diff-1.1901";
     src = fetchurl {
-      url = mirror://cpan/authors/id/T/TY/TYEMQ/Algorithm-Diff-1.1901.zip;
+      url = "mirror://cpan/authors/id/T/TY/TYEMQ/${name}.zip";
       sha256 = "0qk60fi49mpyvnfpjd2dzcmya8x3g5zfgb2hrnl7a5krn045g6i2";
     };
     buildInputs = [unzip];
@@ -4123,7 +4226,7 @@ let
   };
 
   perlBerkeleyDB = import ../development/perl-modules/BerkeleyDB {
-    inherit fetchurl perl db4;
+    inherit buildPerlPackage fetchurl db4;
   };
 
   perlBitVector = buildPerlPackage {
@@ -4135,12 +4238,47 @@ let
     propagatedBuildInputs = [perlCarpClan];
   };
 
+  perlBoolean = buildPerlPackage rec {
+    name = "boolean-0.20";
+    src = fetchurl {
+      url = "mirror://cpan/authors/id/I/IN/INGY/${name}.tar.gz";
+      sha256 = "1xqhzy3m2r08my13alff9bzl8b6xgd68312834x0hf33yir3l1yn";
+    };
+  };
+
   perlCacheFastMmap = buildPerlPackage {
     name = "Cache-FastMmap-1.28";
     src = fetchurl {
       url = mirror://cpan/authors/id/R/RO/ROBM/Cache-FastMmap-1.28.tar.gz;
       sha256 = "1m851bz5025wy24mzsi1i8hdyg8bm7lszx9rnn47llsv6hb9v0da";
     };
+  };
+
+  perlCaptchaReCAPTCHA = buildPerlPackage rec {
+    name = "Captcha-reCAPTCHA-0.92";
+    src = fetchurl {
+      url = "mirror://cpan/authors/id/A/AN/ANDYA/${name}.tar.gz";
+      sha256 = "1fm0fvdy9b7z8k1cyah2qbj0gqlv01chxmqmashwj16198yr7vrc";
+    };
+    propagatedBuildInputs = [perlHTMLTiny perlLWP];
+    buildInputs = [perlTestPod];
+  };
+
+  perlCarpAssert = buildPerlPackage rec {
+    name = "Carp-Assert-0.20";
+    src = fetchurl {
+      url = "mirror://cpan/authors/id/M/MS/MSCHWERN/${name}.tar.gz";
+      sha256 = "1wzy4lswvwi45ybsm65zlq17rrqx84lsd7rajvd0jvd5af5lmlqd";
+    };
+  };
+
+  perlCarpAssertMore = buildPerlPackage rec {
+    name = "Carp-Assert-More-1.12";
+    src = fetchurl {
+      url = "mirror://cpan/authors/id/P/PE/PETDANCE/${name}.tar.gz";
+      sha256 = "1m9k6z0m10s03x2hnc9mh5d4r8lnczm9bqd54jmnw0wzm4m33lyr";
+    };
+    propagatedBuildInputs = [perlTestException perlCarpAssert];
   };
 
   perlCarpClan = buildPerlPackage {
@@ -4152,20 +4290,55 @@ let
     propagatedBuildInputs = [perlTestException];
   };
 
-  perlCatalystActionRenderView = buildPerlPackage {
-    name = "Catalyst-Action-RenderView-0.08";
+  perlCatalystActionRenderView = buildPerlPackage rec {
+    name = "Catalyst-Action-RenderView-0.09";
     src = fetchurl {
-      url = mirror://cpan/authors/id/M/MR/MRAMBERG/Catalyst-Action-RenderView-0.08.tar.gz;
-      sha256 = "1qng995mzgpm1gwb315ynm3spajf0ypmh1ciivqks3r0aamq2ar0";
+      url = "mirror://cpan/authors/id/M/MR/MRAMBERG/${name}.tar.gz";
+      sha256 = "06bxbdfjgnwp8zz4mqq2x7n5ng02h94m27l610icsps7r9iwi8f9";
     };
     propagatedBuildInputs = [perlCatalystRuntime perlHTTPRequestAsCGI perlDataVisitor];
   };
 
-  perlCatalystDevel = buildPerlPackage {
-    name = "Catalyst-Devel-1.08";
+  perlCatalystAuthenticationStoreDBIxClass = buildPerlPackage rec {
+    name = "Catalyst-Authentication-Store-DBIx-Class-0.1082";
     src = fetchurl {
-      url = mirror://cpan/authors/id/M/MR/MRAMBERG/Catalyst-Devel-1.08.tar.gz;
-      sha256 = "1wc2ysmldxd5bczfy6ijd8pbaq18g3snrg0cjc8k48941k8dcqpc";
+      url = "mirror://cpan/authors/id/J/JA/JAYK/${name}.tar.gz";
+      sha256 = "1rh5jwqw3fb16ll5id8z0igpqdwr0czi0xbaa2igalxr53hh2cni";
+    };
+    propagatedBuildInputs = [
+      perlCatalystRuntime perlCatalystPluginAuthentication perlCatalystModelDBICSchema
+    ];
+  };
+
+  perlCatalystComponentInstancePerContext = buildPerlPackage rec {
+    name = "Catalyst-Component-InstancePerContext-0.001001";
+    src = fetchurl {
+      url = "mirror://cpan/authors/id/G/GR/GRODITI/${name}.tar.gz";
+      sha256 = "0wfj4vnn2cvk6jh62amwlg050p37fcwdgrn9amcz24z6w4qgjqvz";
+    };
+    propagatedBuildInputs = [perlCatalystRuntime perlMoose];
+  };
+
+  perlCatalystControllerHTMLFormFu = buildPerlPackage rec {
+    name = "Catalyst-Controller-HTML-FormFu-0.03007";
+    src = fetchurl {
+      url = "mirror://cpan/authors/id/C/CF/CFRANKS/${name}.tar.gz";
+      sha256 = "1vrd79d0nbqkana5q483fgsr41idlfgjhf7fpd3hc056z5nq8iyn";
+    };
+    propagatedBuildInputs = [
+      perlCatalystRuntime perlCatalystActionRenderView perlCatalystViewTT
+      perlCatalystPluginConfigLoader perlConfigGeneral
+      perlCatalystComponentInstancePerContext perlMoose
+      perlRegexpAssemble perlTestWWWMechanize
+      perlTestWWWMechanizeCatalyst perlHTMLFormFu
+    ];
+  };
+
+  perlCatalystDevel = buildPerlPackage rec {
+    name = "Catalyst-Devel-1.10";
+    src = fetchurl {
+      url = "mirror://cpan/authors/id/M/MR/MRAMBERG/${name}.tar.gz";
+      sha256 = "19ylkx55gaq9xxxcl4a55284in7hdrr2sb6lqz64daq3xp29n73h";
     };
     propagatedBuildInputs = [
       perlCatalystRuntime perlCatalystActionRenderView
@@ -4175,12 +4348,13 @@ let
     ];
   };
 
-  perlCatalystManual = buildPerlPackage {
-    name = "Catalyst-Manual-5.7013";
+  perlCatalystManual = buildPerlPackage rec {
+    name = "Catalyst-Manual-5.7016";
     src = fetchurl {
-      url = mirror://cpan/authors/id/Z/ZA/ZARQUON/Catalyst-Manual-5.7013.tar.gz;
-      sha256 = "17n9w7gd2mj8mkw8zv9as0ba3qzwn07js7xgd46avxpcscl2fpqx";
+      url = "mirror://cpan/authors/id/H/HK/HKCLARK/${name}.tar.gz";
+      sha256 = "0axin80dca3xb0n7frn9w8lj43l7dykpwrf7jj44n1v1kyzw813f";
     };
+    buildInputs = [perlTestPod perlTestPodCoverage];
   };
 
   perlCatalystModelDBICSchema = buildPerlPackage {
@@ -4196,24 +4370,27 @@ let
     ];
   };
 
-  perlCatalystRuntime = buildPerlPackage {
-    name = "Catalyst-Runtime-5.7015";
+  perlCatalystRuntime = buildPerlPackage rec{
+    name = "Catalyst-Runtime-5.8000_06";
     src = fetchurl {
-      url = mirror://cpan/authors/id/M/MR/MRAMBERG/Catalyst-Runtime-5.7015.tar.gz;
-      sha256 = "039c6ipn87lf23y7r7zg0bnga31nqzklrf28p6nd0xkhs1wihfbg";
+      url = "mirror://cpan/authors/id/M/MR/MRAMBERG/${name}.tar.gz";
+      sha256 = "181fynr72q73xs78rk2hmlgqhx2n35ysv73rfd69780na1j3gkzf";
     };
     propagatedBuildInputs = [
       perlLWP perlClassAccessor perlClassDataInheritable perlClassInspector
       perlCGISimple perlDataDump perlFileModified perlHTTPBody perlHTTPRequestAsCGI
       perlPathClass perlTextSimpleTable perlTreeSimple perlTreeSimpleVisitorFactory
+      perlSubExporter perlMROCompat perlTestMockObject perlClassMOP perlMoose
+      perlNamespaceClean perlScopeUpper perlMooseXEmulateClassAccessorFast
+      perlClassC3 perlClassC3AdoptNEXT
     ];
   };
 
-  perlCatalystPluginAuthentication = buildPerlPackage {
-    name = "Catalyst-Plugin-Authentication-0.10006";
+  perlCatalystPluginAuthentication = buildPerlPackage rec {
+    name = "Catalyst-Plugin-Authentication-0.10010";
     src = fetchurl {
-      url = mirror://cpan/authors/id/J/JA/JAYK/Catalyst-Plugin-Authentication-0.10006.tar.gz;
-      sha256 = "11x5d1l7p8z7q20fj79nlhwbmsab21m56rj5x20jkqfl91jx1l2s";
+      url = "mirror://cpan/authors/id/B/BO/BOBTFISH/${name}.tar.gz";
+      sha256 = "1jjdmyccsq0k8ysl9ppm7rddf6w4l2yhwjr60c0x4lp5iafzmf4z";
     };
     propagatedBuildInputs = [perlCatalystRuntime perlCatalystPluginSession];
   };
@@ -4228,17 +4405,6 @@ let
       perlCatalystRuntime perlCatalystPluginAuthentication
       perlSetObject perlDBIxClass perlCatalystModelDBICSchema
       perlCatalystPluginAuthorizationRoles perlCatalystPluginSessionStateCookie
-    ];
-  };
-
-  perlCatalystPluginAuthenticationStoreDBIxClass = buildPerlPackage {
-    name = "Catalyst-Authentication-Store-DBIx-Class-0.107";
-    src = fetchurl {
-      url = http://search.cpan.org/CPAN/authors/id/J/JA/JAYK/Catalyst-Authentication-Store-DBIx-Class-0.107.tar.gz;
-      sha256 = "1vlrl65wf2i65zm2svb1mvylcx5vdrvxr09y16az60kdwiqvam6n";
-    };
-    propagatedBuildInputs = [
-      perlCatalystRuntime perlCatalystPluginAuthentication perlCatalystModelDBICSchema
     ];
   };
 
@@ -4263,13 +4429,13 @@ let
     ];
   };
 
-  perlCatalystPluginConfigLoader = buildPerlPackage {
-    name = "Catalyst-Plugin-ConfigLoader-0.21";
+  perlCatalystPluginConfigLoader = buildPerlPackage rec {
+    name = "Catalyst-Plugin-ConfigLoader-0.22";
     src = fetchurl {
-      url = mirror://cpan/authors/id/B/BR/BRICAS/Catalyst-Plugin-ConfigLoader-0.21.tar.gz;
-      sha256 = "1wv7j69ddwr8vrc6v4ipymdnv8mr9ak5jwiq0fia85bx9cv9f77j";
+      url = "mirror://cpan/authors/id/B/BR/BRICAS/${name}.tar.gz";
+      sha256 = "13ir2l0pvjn4myp7wfh2bxcdd4hp0b3ln28mz1kvlshhxl032lqn";
     };
-    propagatedBuildInputs = [perlCatalystRuntime perlDataVisitor perlConfigAny];
+    propagatedBuildInputs = [perlCatalystRuntime perlDataVisitor perlConfigAny perlMROCompat];
   };
 
   perlCatalystPluginHTMLWidget = buildPerlPackage {
@@ -4281,31 +4447,34 @@ let
     propagatedBuildInputs = [perlCatalystRuntime perlHTMLWidget];
   };
 
-  perlCatalystPluginSession = buildPerlPackage {
-    name = "Catalyst-Plugin-Session-0.19";
+  perlCatalystPluginSession = buildPerlPackage rec {
+    name = "Catalyst-Plugin-Session-0.20";
     src = fetchurl {
-      url = mirror://cpan/authors/id/N/NU/NUFFIN/Catalyst-Plugin-Session-0.19.tar.gz;
-      sha256 = "1gdirzm0fd167cm7ilqjhsw3g8ipfcklkrb0sj1grp9szhs5nlsd";
+      url = "mirror://cpan/authors/id/B/BO/BOBTFISH/${name}.tar.gz";
+      sha256 = "1p72hf68qi038gayhsxbbx3l3hg7b1njjii510alxqyw3a10y9sj";
     };
-    propagatedBuildInputs = [perlCatalystRuntime perlTestMockObject perlObjectSignature perlTestDeep];
+    propagatedBuildInputs = [
+      perlCatalystRuntime perlTestMockObject perlObjectSignature
+      perlTestDeep perlMROCompat
+    ];
   };
 
-  perlCatalystPluginSessionStateCookie = buildPerlPackage {
-    name = "Catalyst-Plugin-Session-State-Cookie-0.09";
+  perlCatalystPluginSessionStateCookie = buildPerlPackage rec {
+    name = "Catalyst-Plugin-Session-State-Cookie-0.10";
     src = fetchurl {
-      url = mirror://cpan/authors/id/N/NU/NUFFIN/Catalyst-Plugin-Session-State-Cookie-0.09.tar.gz;
-      sha256 = "03j2x66vq1ns4m5xlpwxmpnwhwqmg27m9qxm0kqg1a4v12ky9669";
+      url = "mirror://cpan/authors/id/B/BO/BOBTFISH/${name}.tar.gz";
+      sha256 = "1630shg23cpk6v26fwf7xr53ml1s6l2mgirxw524nmciliczgldj";
     };
     propagatedBuildInputs = [
       perlCatalystRuntime perlCatalystPluginSession perlTestMockObject
     ];
   };
 
-  perlCatalystPluginSessionStoreFastMmap = buildPerlPackage {
-    name = "Catalyst-Plugin-Session-State-Cookie-0.09";
+  perlCatalystPluginSessionStoreFastMmap = buildPerlPackage rec {
+    name = "Catalyst-Plugin-Session-Store-FastMmap-0.06";
     src = fetchurl {
-      url = mirror://cpan/authors/id/K/KA/KARMAN/Catalyst-Plugin-Session-Store-FastMmap-0.05.tar.gz;
-      sha256 = "0k1x9fbixlb20bw5rym27ariss6rwbp06rd4znr979l7r571fy3p";
+      url = "mirror://cpan/authors/id/K/KA/KARMAN/${name}.tar.gz";
+      sha256 = "0by8w1zbp2802f9n3sqp0cmm2q0pwnycf0jgzvvv75riicq1m9pn";
     };
     propagatedBuildInputs = [
       perlPathClass perlCatalystPluginSession perlCacheFastMmap
@@ -4330,11 +4499,11 @@ let
     propagatedBuildInputs = [perlCatalystRuntime perlMIMETypes];
   };
 
-  perlCatalystViewTT = buildPerlPackage {
-    name = "Catalyst-View-TT-0.27";
+  perlCatalystViewTT = buildPerlPackage rec {
+    name = "Catalyst-View-TT-0.28";
     src = fetchurl {
-      url = mirror://cpan/authors/id/M/MR/MRAMBERG/Catalyst-View-TT-0.27.tar.gz;
-      sha256 = "03xs31y9m5nrmfzpfmlzlg3ivys1gg8nwd6fvwbg72a3z36brghd";
+      url = "mirror://cpan/authors/id/M/MR/MRAMBERG/${name}.tar.gz";
+      sha256 = "18chdzgv0fvq65kfp8am2f5cayxpzg355q7jin4xlzygbgh2a5vg";
     };
     propagatedBuildInputs = [
       perlCatalystRuntime perlTemplateToolkit perlClassAccessor
@@ -4375,11 +4544,11 @@ let
     propagatedBuildInputs = [perlClassAccessor];
   };
 
-  perlClassAccessorGrouped = buildPerlPackage {
-    name = "Class-Accessor-Grouped-0.08001";
+  perlClassAccessorGrouped = buildPerlPackage rec {
+    name = "Class-Accessor-Grouped-0.08002";
     src = fetchurl {
-      url = mirror://cpan/authors/id/C/CL/CLACO/Class-Accessor-Grouped-0.08001.tar.gz;
-      sha256 = "15hwk5w4xxw5zr3yzp8ib93mja6xwsknasfb1jsa6a4k0r7xmq3f";
+      url = "mirror://cpan/authors/id/C/CL/CLACO/${name}.tar.gz";
+      sha256 = "0y7dqf0k5zh8azkb181k1zbbcy14rhfd55yddhccbfp6v44yl7yr";
     };
     propagatedBuildInputs = [perlClassInspector perlMROCompat];
   };
@@ -4392,12 +4561,21 @@ let
     };
   };
 
-  perlClassC3 = buildPerlPackage {
-    name = "Class-C3-0.19";
+  perlClassC3 = buildPerlPackage rec {
+    name = "Class-C3-0.20";
     src = fetchurl {
-      url = mirror://cpan/authors/id/B/BL/BLBLACK/Class-C3-0.19.tar.gz;
-      sha256 = "1sn3s2ibdgwzirn3vl0s458qqncg76fxpqzcmyjmxy1kbdmjy01s";
+      url = "mirror://cpan/authors/id/F/FL/FLORA/${name}.tar.gz";
+      sha256 = "1xmd77ghxgn4yjd25z25df0isaz3k3b685q151x0f3537kl8cln3";
     };
+  };
+
+  perlClassC3AdoptNEXT = buildPerlPackage rec {
+    name = "Class-C3-Adopt-NEXT-0.07";
+    src = fetchurl {
+      url = "mirror://cpan/authors/id/F/FL/FLORA/${name}.tar.gz";
+      sha256 = "1kxbdq10vicrbz3i6hvml3mma5x0r523gfdd649f9bvrsizb0jxj";
+    };
+    propagatedBuildInputs = [perlMROCompat perlTestException perlListMoreUtils];
   };
 
   perlClassC3Componentised = buildPerlPackage {
@@ -4425,11 +4603,39 @@ let
     };
   };
 
+  perlClassFactoryUtil = buildPerlPackage rec {
+    name = "Class-Factory-Util-1.7";
+    src = fetchurl {
+      url = "mirror://cpan/authors/id/D/DR/DROLSKY/${name}.tar.gz";
+      sha256 = "09ifd6v0c94vr20n9yr1dxgcp7hyscqq851szdip7y24bd26nlbc";
+    };
+  };
+
   perlClassInspector = buildPerlPackage {
     name = "Class-Inspector-1.23";
     src = fetchurl {
       url = mirror://cpan/authors/id/A/AD/ADAMK/Class-Inspector-1.23.tar.gz;
       sha256 = "0d15b5wls14gqcd6v2k4kbc0v0a1qfb794h49wfc4vwjk5gnpbw1";
+    };
+  };
+
+  perlClassMOP = buildPerlPackage rec {
+    name = "Class-MOP-0.76";
+    src = fetchurl {
+      url = "mirror://cpan/authors/id/D/DR/DROLSKY/${name}.tar.gz";
+      sha256 = "0hya7hyz80d65vf1llanasg0gszgjyc52842xxzgqhy4vvnwviyy";
+    };
+    propagatedBuildInputs = [
+      perlMROCompat perlTaskWeaken perlTestException perlSubName perlSubIdentify
+      perlDevelGlobalDestruction
+    ];
+  };
+
+  perlClassSingleton = buildPerlPackage rec {
+    name = "Class-Singleton-1.4";
+    src = fetchurl {
+      url = "mirror://cpan/authors/id/A/AB/ABW/${name}.tar.gz";
+      sha256 = "0l4iwwk91wm2mrrh4irrn6ham9k12iah1ry33k0lzq22r3kwdbyg";
     };
   };
 
@@ -4441,12 +4647,28 @@ let
     };
   };
 
-  perlCompressZlib = buildPerlPackage {
-    name = "Compress-Zlib-1.41";
+  perlClassUnload = buildPerlPackage {
+    name = "Class-Unload-0.05";
     src = fetchurl {
-      url = http://nixos.org/tarballs/Compress-Zlib-1.41.tar.gz;
-      md5 = "ac135b84a03e814734496777cf5e5722";
+      url = mirror://cpan/authors/id/I/IL/ILMARI/Class-Unload-0.05.tar.gz;
+      sha256 = "01b0j10nxbz37xnnzw3hgmpfgq09mc489kq2d8f5nswsrlk75001";
     };
+    propagatedBuildInputs = [perlClassInspector];
+  };
+
+  perlCompressRawZlib = import ../development/perl-modules/Compress-Raw-Zlib {
+    inherit fetchurl buildPerlPackage zlib;
+  };
+
+  perlCompressZlib = buildPerlPackage rec {
+    name = "Compress-Zlib-2.015";
+    src = fetchurl {
+      url = "mirror://cpan/authors/id/P/PM/PMQS/${name}.tar.gz";
+      sha256 = "1k1i539fszhxay8yllh687sw06i68g8ikw51pvy1c84p3kg6yk4v";
+    };
+    propagatedBuildInputs = [
+      perlCompressRawZlib perlIOCompressBase perlIOCompressGzip
+    ];
   };
 
   perlConfigAny = buildPerlPackage {
@@ -4473,6 +4695,23 @@ let
     };
   };
 
+  perlCryptCBC = buildPerlPackage rec {
+    name = "Crypt-CBC-2.30";
+    src = fetchurl {
+      url = "mirror://cpan/authors/id/L/LD/LDS/${name}.tar.gz";
+      sha256 = "0cvigpxvwn18kb5i40jlp5fgijbhncvlh23xdgs1cnhxa17yrgwx";
+    };
+  };
+
+  perlCryptDES = buildPerlPackage rec {
+    name = "Crypt-DES-2.05";
+    src = fetchurl {
+      url = "mirror://cpan/authors/id/D/DP/DPARIS/${name}.tar.gz";
+      sha256 = "1w12k1b7868v3ql0yprswlz2qri6ja576k9wlda7b8zf2d0rxgmp";
+    };
+    buildInputs = [perlCryptCBC];
+  };
+
   perlCryptPasswordMD5 = buildPerlPackage {
     name = "Crypt-PasswdMD5-1.3";
     src = fetchurl {
@@ -4496,6 +4735,15 @@ let
       sha256 = "1vfrkygdaq0k7006i83jwavg9wgszfcyzbl9b7fp37z2acmyda5k";
     };
     propagatedBuildInputs = [perlTestException];
+  };
+
+  perlDataOptList = buildPerlPackage rec {
+    name = "Data-OptList-0.104";
+    src = fetchurl {
+      url = "mirror://cpan/authors/id/R/RJ/RJBS/${name}.tar.gz";
+      sha256 = "1k1qvf3ik2rn9mg65ginv3lyy6dlg1z08yddcnzbnizs8vbqqaxd";
+    };
+    propagatedBuildInputs = [perlSubInstall perlParamsUtil];
   };
 
   perlDataPage = buildPerlPackage {
@@ -4536,6 +4784,69 @@ let
     };
   };
 
+  perlDateTime = buildPerlPackage rec {
+    name = "DateTime-0.4501";
+    src = fetchurl {
+      url = "mirror://cpan/authors/id/D/DR/DROLSKY/${name}.tar.gz";
+      sha256 = "1hqhc4xfjgcc1r488gjbi498ws3pxiayabl46607lq02qddcv57s";
+    };
+    propagatedBuildInputs = [perlDateTimeLocale perlDateTimeTimeZone];
+  };
+
+  perlDateTimeFormatBuilder = buildPerlPackage rec {
+    name = "DateTime-Format-Builder-0.7901";
+    src = fetchurl {
+      url = "mirror://cpan/authors/id/D/DR/DROLSKY/${name}.tar.gz";
+      sha256 = "08zl89gh5lkff8736fkdnrf6dgppsjbmymnysbc06s7igd4ig8zf";
+    };
+    propagatedBuildInputs = [
+      perlDateTime perlParamsValidate perlTaskWeaken perlDateTimeFormatStrptime
+      perlClassFactoryUtil
+    ];
+    buildInputs = [perlTestPod];
+  };
+
+  perlDateTimeFormatNatural = buildPerlPackage rec {
+    name = "DateTime-Format-Natural-0.74";
+    src = fetchurl {
+      url = "mirror://cpan/authors/id/S/SC/SCHUBIGER/${name}.tar.gz";
+      sha256 = "0hq33s5frfa8cpj2al7qi0sbmimm5sdlxf0h3b57fjm9x5arlkcn";
+    };
+    propagatedBuildInputs = [
+      perlDateTime perlListMoreUtils perlParamsValidate perlDateCalc
+      perlTestMockTime perlBoolean
+    ];
+  };
+
+  perlDateTimeFormatStrptime = buildPerlPackage rec {
+    name = "DateTime-Format-Strptime-1.0800";
+    src = fetchurl {
+      url = "mirror://cpan/authors/id/R/RI/RICKM/${name}.tgz";
+      sha256 = "10vsmwlhnc62krsh5fm2i0ya7bgjgjsm6nmj56f0bfifjh57ya1j";
+    };
+    propagatedBuildInputs = [
+      perlDateTime perlDateTimeLocale perlDateTimeTimeZone perlParamsValidate
+    ];
+  };
+
+  perlDateTimeLocale = buildPerlPackage rec {
+    name = "DateTime-Locale-0.42";
+    src = fetchurl {
+      url = "mirror://cpan/authors/id/D/DR/DROLSKY/${name}.tar.gz";
+      sha256 = "1cvp9a4j6vy3xpbv6ipzcz1paw7gzal7lkrbm5ipiilji47d5gaw";
+    };
+    propagatedBuildInputs = [perlListMoreUtils perlParamsValidate];
+  };
+
+  perlDateTimeTimeZone = buildPerlPackage rec {
+    name = "DateTime-TimeZone-0.84";
+    src = fetchurl {
+      url = "mirror://cpan/authors/id/D/DR/DROLSKY/${name}.tar.gz";
+      sha256 = "0jwbldr3x1cl2ibd9dcshdmpg6s5ddc4qiaxcxyqc82cq09ah2vs";
+    };
+    propagatedBuildInputs = [perlClassSingleton perlParamsValidate];
+  };
+
   perlDBDSQLite = import ../development/perl-modules/DBD-SQLite {
     inherit fetchurl buildPerlPackage perlDBI sqlite;
   };
@@ -4552,49 +4863,72 @@ let
     };
   };
 
-  perlDBIxClass = buildPerlPackage {
-    name = "DBIx-Class-0.08099_04";
+  perlDBIxClass = buildPerlPackage rec {
+    name = "DBIx-Class-0.08011";
     src = fetchurl {
-      url = mirror://cpan/authors/id/L/LS/LSAUNDERS/DBIx-Class-0.08099_04.tar.gz;
-      sha256 = "0ik5bjsrlpz0sbwrrwiyjiga17rh9jb09gflqif5h59gq9y7kcyf";
+      url = "mirror://cpan/authors/id/R/RI/RIBASUSHI/${name}.tar.gz";
+      sha256 = "0bdp2hqbxdn0xzjja0wcynwvq36z2vwz7yx5w34s82g59pmf5dbx";
     };
     propagatedBuildInputs = [
       perlTestNoWarnings perlTestException perlDBI perlScopeGuard
       perlPathClass perlClassInspector perlClassAccessorGrouped
       perlCarpClan perlTestWarn perlDataPage perlSQLAbstract
       perlSQLAbstractLimit perlClassC3 perlClassC3Componentised
-      perlModuleFind perlDBDSQLite perlJSONAny
+      perlModuleFind perlDBDSQLite perlJSONAny perlSubName
     ];
+    buildInputs = [perlTestPod perlTestPodCoverage];
+    doCheck = false; /* it says "8 subtests UNEXPECTEDLY SUCCEEDED" */
   };
 
-  perlDBIxClassHTMLWidget = buildPerlPackage {
-    name = "DBIx-Class-HTMLWidget";
+  perlDBIxClassHTMLWidget = buildPerlPackage rec {
+    name = "DBIx-Class-HTMLWidget-0.16";
     src = fetchurl {
-      url = http://search.cpan.org/CPAN/authors/id/A/AN/ANDREMAR/DBIx-Class-HTMLWidget-0.16.tar.gz;
+      url = "mirror://cpan/authors/id/A/AN/ANDREMAR/${name}.tar.gz";
       sha256 = "05zhniyzl31nq410ywhxm0vmvac53h7ax42hjs9mmpvf45ipahj1";
     };
     propagatedBuildInputs = [perlDBIxClass perlHTMLWidget];
   };
 
-  perlDBIxClassSchemaLoader = buildPerlPackage {
+  perlDBIxClassSchemaLoader = buildPerlPackage rec {
     name = "DBIx-Class-Schema-Loader-0.04005";
     src = fetchurl {
-      url = mirror://cpan/authors/id/I/IL/ILMARI/DBIx-Class-Schema-Loader-0.04005.tar.gz;
+      url = "mirror://cpan/authors/id/I/IL/ILMARI/${name}.tar.gz";
       sha256 = "1adymxsh1q7y1d3x25mar1rz6nshag16h6bfzhwy0w50qd2vvx9l";
     };
     propagatedBuildInputs = [
       perlDBI perlDBDSQLite perlDataDump perlUNIVERSALrequire
       perlClassAccessor perlClassDataAccessor perlClassC3 perlCarpClan
       perlClassInspector perlDBIxClass perlLinguaENInflectNumber
+      perlClassUnload
     ];
   };
 
-  perlDevelStackTrace = buildPerlPackage {
-    name = "Devel-StackTrace-1.1902";
+  perlDevelGlobalDestruction = buildPerlPackage rec {
+    name = "Devel-GlobalDestruction-0.02";
     src = fetchurl {
-      url = mirror://cpan/authors/id/D/DR/DROLSKY/Devel-StackTrace-1.1902.tar.gz;
-      sha256 = "0llkvmpdcbqhw28ck0gzw4jlc2zbz7sx3dqscysdc05nk2fd3iax";
+      url = "mirror://cpan/authors/id/N/NU/NUFFIN/${name}.tar.gz";
+      sha256 = "174m5dx2z89h4308gx6s6vmg93qzaq0bh9m91hp2vqbyialnarhw";
     };
+    propagatedBuildInputs = [perlSubExporter perlScopeGuard];
+  };
+
+  perlDevelStackTrace = buildPerlPackage rec {
+    name = "Devel-StackTrace-1.20";
+    src = fetchurl {
+      url = "mirror://cpan/authors/id/D/DR/DROLSKY/${name}.tar.gz";
+      sha256 = "15zh9gzhw6gv7l6sklp02pfmiiv8kwmmjsyvirppsca6aagy4603";
+    };
+  };
+
+  perlDevelSymdump = buildPerlPackage rec {
+    name = "Devel-Symdump-2.08";
+    src = fetchurl {
+      url = "mirror://cpan/authors/id/A/AN/ANDK/${name}.tar.gz";
+      sha256 = "0qzj68zw1yypk8jw77h0w5sdpdcrp4xcmgfghcfyddjr2aim60x5";
+    };
+    propagatedBuildInputs = [
+      perlTestPod /* cyclic dependency: perlTestPodCoverage */
+    ];
   };
 
   perlDigestHMAC = buildPerlPackage {
@@ -4646,6 +4980,7 @@ let
       sha256 = "13yfjll63cp1y4xqzdcr1mjhfncn48v6hckk5mvwi47w3ccj934a";
     };
     propagatedBuildInputs = [perlMailTools perlNetDNS];
+    doCheck = false;
   };
 
   perlEncode = buildPerlPackage {
@@ -4654,7 +4989,6 @@ let
       url = mirror://cpan/authors/id/D/DA/DANKOGAI/Encode-2.25.tar.gz;
       sha256 = "0prwmbg3xh1lqskianwrfrgasdfmz4kjm3qpdm27ay110jkk25ak";
     };
-    propagatedBuildInputs = [];
   };
 
   perlExtUtilsInstall = buildPerlPackage {
@@ -4672,7 +5006,6 @@ let
       url = mirror://cpan/authors/id/M/MS/MSCHWERN/ExtUtils-MakeMaker-6.44.tar.gz;
       sha256 = "0zyypnlmmyp06qbfdpc14rp5rj63066mjammn6rlcqz2iil9mpcj";
     };
-    propagatedBuildInputs = [];
   };
 
   perlExtUtilsManifest = buildPerlPackage {
@@ -4681,7 +5014,6 @@ let
       url = mirror://cpan/authors/id/R/RK/RKOBES/ExtUtils-Manifest-1.53.tar.gz;
       sha256 = "0xgfzivw0dfy29ydfjkg0c9mvlhjvlhc54s0yvbb4sxb2mdvrfkp";
     };
-    propagatedBuildInputs = [];
   };
 
   perlFilechdir = buildPerlPackage {
@@ -4690,7 +5022,6 @@ let
       url = mirror://cpan/authors/id/D/DA/DAGOLDEN/File-chdir-0.1002.tar.gz;
       sha256 = "1fc2l754bxsizli3injm4wqf8dn03iq16rmfn62l99nxpibl5k6p";
     };
-    propagatedBuildInputs = [];
   };
 
   perlFileCopyRecursive = buildPerlPackage {
@@ -4709,13 +5040,21 @@ let
     };
   };
 
+  perlFileShareDir = buildPerlPackage rec {
+    name = "File-ShareDir-1.00";
+    src = fetchurl {
+      url = "mirror://cpan/authors/id/A/AD/ADAMK/${name}.tar.gz";
+      sha256 = "1afr1r1ys2ij8i4r0i85hfrgrbvcha8c7cgkhcrdya1f0lnpw59z";
+    };
+    propagatedBuildInputs = [perlClassInspector perlParamsUtil];
+  };
+
   perlFileTemp = buildPerlPackage {
     name = "File-Temp-0.20";
     src = fetchurl {
       url = mirror://cpan/authors/id/T/TJ/TJENNESS/File-Temp-0.20.tar.gz;
       sha256 = "0n7lr7mpdvwgznw469qdpdmac627a26wp615dkpzanc452skad4v";
     };
-    propagatedBuildInputs = [];
   };
 
   perlFreezeThaw = buildPerlPackage {
@@ -4724,7 +5063,24 @@ let
       url = mirror://cpan/authors/id/I/IL/ILYAZ/modules/FreezeThaw-0.43.tar.gz;
       sha256 = "1qamc5aggp35xk590a4hy660f2rhc2l7j65hbyxdya9yvg7z437l";
     };
-    propagatedBuildInputs = [];
+  };
+
+  perlHTMLFormFu = buildPerlPackage rec {
+    name = "HTML-FormFu-0.03007";
+    src = fetchurl {
+      url = "mirror://cpan/authors/id/C/CF/CFRANKS/${name}.tar.gz";
+      sha256 = "03lc4pvygp4wn9rsgdkbwk8zkh8x2z5vp8613c6q74imwrfmmfqy";
+    };
+    propagatedBuildInputs = [
+      perlClassAccessorChained perlClassC3 perlConfigAny
+      perlDateCalc perlListMoreUtils perlLWP perlEmailValid
+      perlDataVisitor perlDateTime perlDateTimeFormatBuilder
+      perlDateTimeFormatStrptime perlDateTimeFormatNatural
+      perlReadonly perlYAMLSyck perlRegexpCopy
+      perlHTMLTokeParserSimple perlTestNoWarnings perlRegexpCommon
+      perlCaptchaReCAPTCHA perlHTMLScrubber perlFileShareDir
+      perlTemplateToolkit perlCryptCBC perlCryptDES
+    ];
   };
 
   perlHTMLParser = buildPerlPackage {
@@ -4753,6 +5109,24 @@ let
     };
   };
 
+  perlHTMLTiny = buildPerlPackage rec {
+    name = "HTML-Tiny-1.03";
+    src = fetchurl {
+      url = "mirror://cpan/authors/id/A/AN/ANDYA/${name}.tar.gz";
+      sha256 = "1nc9vr0z699jwv8jaxxpkfhspiv7glhdp500hqyzdm2jxfw8azrg";
+    };
+  };
+
+  perlHTMLTokeParserSimple = buildPerlPackage rec {
+    name = "HTML-TokeParser-Simple-3.15";
+    src = fetchurl {
+      url = "mirror://cpan/authors/id/O/OV/OVID/${name}.tar.gz";
+      sha256 = "0ii1ww17h7wps1lcj7bxrjbisa37f6cvlm0xxpgfq1s6iy06q05b";
+    };
+    propagatedBuildInputs = [perlHTMLParser perlSubOverride];
+    buildInputs = [perlTestPod];
+  };
+
   perlHTMLTree = buildPerlPackage {
     name = "HTML-Tree-3.23";
     src = fetchurl {
@@ -4775,12 +5149,13 @@ let
     ];
   };
 
-  perlHTTPBody = buildPerlPackage {
-    name = "HTTP-Body-1.04";
+  perlHTTPBody = buildPerlPackage rec {
+    name = "HTTP-Body-1.05";
     src = fetchurl {
-      url = mirror://cpan/authors/id/A/AG/AGRUNDMA/HTTP-Body-1.04.tar.gz;
-      sha256 = "11qxfv2p2bzd5xnl0ypy8l3frssszwrxafipm1fm36sxay2v71js";
+      url = "mirror://cpan/authors/id/A/AG/AGRUNDMA/${name}.tar.gz";
+      sha256 = "0s0496sb9l8jfkdx86vahwgdaaxrqb0j6acyww6nk0ajh82qrzfv";
     };
+    propagatedBuildInputs = [perlLWP perlYAML];
   };
 
   perlHTTPRequestAsCGI = buildPerlPackage {
@@ -4792,13 +5167,48 @@ let
     propagatedBuildInputs = [perlClassAccessor perlLWP];
   };
 
+  perlHTTPResponseEncoding = buildPerlPackage rec {
+    name = "HTTP-Response-Encoding-0.05";
+    src = fetchurl {
+      url = "mirror://cpan/authors/id/D/DA/DANKOGAI/${name}.tar.gz";
+      sha256 = "04gdl633g0s2ckn7zixcma2krbpfcd46jngg155qpdx5sdwfkm16";
+    };
+    propagatedBuildInputs = [perlLWP];
+  };
+
+  perlHTTPServerSimple = buildPerlPackage rec {
+    name = "HTTP-Server-Simple-0.38";
+    src = fetchurl {
+      url = "mirror://cpan/authors/id/J/JE/JESSE/${name}.tar.gz";
+      sha256 = "1m1lmpbg0zhiv2vyc3fyyqfsv3jhhb2mbdl5624fqb0va2pnla6n";
+    };
+    propagatedBuildInputs = [perlURI];
+    doCheck = false;
+  };
+
   perlI18NLangTags = buildPerlPackage {
     name = "I18N-LangTags-0.35";
     src = fetchurl {
       url = mirror://cpan/authors/id/S/SB/SBURKE/I18N-LangTags-0.35.tar.gz;
       sha256 = "0idwfi7k8l44d9akpdj6ygdz3q8zxr690m18s7w23ms9d55bh3jy";
     };
-    propagatedBuildInputs = [];
+  };
+
+  perlIOCompressBase = buildPerlPackage rec {
+    name = "IO-Compress-Base-2.015";
+    src = fetchurl {
+      url = "mirror://cpan/authors/id/P/PM/PMQS/${name}.tar.gz";
+      sha256 = "10njlwa50mhs5nqws5yidfmmb7hwmwc6x06gk2vnpyn82g3szgqd";
+    };
+  };
+
+  perlIOCompressGzip = buildPerlPackage rec {
+    name = "IO-Compress-Zlib-2.015";
+    src = fetchurl {
+      url = "mirror://cpan/authors/id/P/PM/PMQS/${name}.tar.gz";
+      sha256 = "0sbnx6xdryaajwpssrfgm5b2zasa4ri8pihqwsx3rm5kmkgzy9cx";
+    };
+    propagatedBuildInputs = [perlIOCompressBase perlCompressRawZlib];
   };
 
   perlIODigest = buildPerlPackage {
@@ -4818,12 +5228,13 @@ let
     };
   };
 
-  perlIPCRun = buildPerlPackage {
-    name = "IPC-Run-0.80";
+  perlIPCRun = buildPerlPackage rec {
+    name = "IPC-Run-0.82";
     src = fetchurl {
-      url = mirror://cpan/authors/id/R/RS/RSOD/IPC-Run-0.80.tar.gz;
-      sha256 = "1lb0skp093ikkjg125l2f8lw7jzawmy4x7h1azgcs0d5miy8apj4";
+      url = "mirror://cpan/authors/id/A/AD/ADAMK/${name}.tar.gz";
+      sha256 = "1v5yfavvhxscqkdl68xs7i7vcp9drl3y1iawppzwqcl1fprd58ip";
     };
+    doCheck = false; /* attempts a network connection to localhost */
   };
 
   perlJSON = buildPerlPackage {
@@ -4909,14 +5320,13 @@ let
       url = mirror://cpan/authors/id/A/AU/AUDREYT/Locale-Maketext-Simple-0.18.tar.gz;
       sha256 = "14kx7vkxyfqndy90rzavrjp2346aidyc7x5dzzdj293qf8s4q6ig";
     };
-    propagatedBuildInputs = [];
   };
 
-  perlLWP = buildPerlPackage {
-    name = "libwww-perl-5.819";
+  perlLWP = buildPerlPackage rec {
+    name = "libwww-perl-5.823";
     src = fetchurl {
-      url = mirror://cpan/authors/id/G/GA/GAAS/libwww-perl-5.819.tar.gz;
-      sha256 = "6bc03e9e88213add8436fed020509a7126c6b79c330c3c115cb696fa3b5373ae";
+      url = "mirror://cpan/authors/id/G/GA/GAAS/${name}.tar.gz";
+      sha256 = "1pz65p02dcy1yf4l1zhhwjmnh6fvf8q71nsmhjpc5lydsf35h1ql";
     };
     propagatedBuildInputs = [perlURI perlHTMLParser perlHTMLTagset];
   };
@@ -4956,6 +5366,27 @@ let
     };
   };
 
+  perlMoose = buildPerlPackage rec {
+    name = "Moose-0.68";
+    src = fetchurl {
+      url = "mirror://cpan/authors/id/D/DR/DROLSKY/${name}.tar.gz";
+      sha256 = "0ncpa8v0yv7lkn108943sjll3gps5nkzn6a51ngvqq1rnsd34ar1";
+    };
+    propagatedBuildInputs = [
+      perlTestMore perlTestException perlTaskWeaken perlListMoreUtils
+      perlClassMOP perlSubExporter
+    ];
+  };
+
+  perlMooseXEmulateClassAccessorFast = buildPerlPackage rec {
+    name = "MooseX-Emulate-Class-Accessor-Fast-0.00800";
+    src = fetchurl {
+      url = "mirror://cpan/authors/id/G/GR/GRODITI/${name}.tar.gz";
+      sha256 = "1z2sld2sw1mlwxwzxxanik3086cw14rdsx2wwnzrfy7prsnigcl2";
+    };
+    propagatedBuildInputs = [perlMoose perlNamespaceClean];
+  };
+
   perlMouse = buildPerlPackage {
     name = "Mouse-0.09";
     src = fetchurl {
@@ -4988,6 +5419,7 @@ let
       sha256 = "1pswrwhkav051xahm3k4cbyhi8kqpfmaz85lw44kwi2wc7mz4prk";
     };
     propagatedBuildInputs = [perlNetIP perlDigestHMAC];
+    doCheck = false;
   };
 
   perlNetIP = buildPerlPackage {
@@ -5003,6 +5435,22 @@ let
     src = fetchurl {
       url = mirror://cpan/authors/id/A/AD/ADAMK/Object-Signature-1.05.tar.gz;
       sha256 = "10k9j18jpb16brv0hs7592r7hx877290pafb8gnk6ydy7hcq9r2j";
+    };
+  };
+
+  perlParamsUtil = buildPerlPackage rec {
+    name = "Params-Util-0.37";
+    src = fetchurl {
+      url = "mirror://cpan/authors/id/A/AD/ADAMK/${name}.tar.gz";
+      sha256 = "1n36vhahbs2mfck5x6g8ab9280zji9zwc5092jiq78s791227cb6";
+    };
+  };
+
+  perlParamsValidate = buildPerlPackage rec {
+    name = "Params-Validate-0.91";
+    src = fetchurl {
+      url = "mirror://cpan/authors/id/D/DR/DROLSKY/${name}.tar.gz";
+      sha256 = "1j0hx3pbfdyggbhrawa9k0wdm6lln3zdkrhjrdg1hzzf6csrlc1v";
     };
   };
 
@@ -5028,7 +5476,6 @@ let
       url = mirror://cpan/authors/id/A/AU/AUDREYT/PerlIO-eol-0.14.tar.gz;
       sha256 = "1rwj0r075jfvvd0fnzgdqldc7qdb94wwsi21rs2l6yhcv0380fs2";
     };
-    propagatedBuildInputs = [];
   };
 
   perlPerlIOviadynamic = buildPerlPackage {
@@ -5037,7 +5484,6 @@ let
       url = mirror://cpan/authors/id/C/CL/CLKAO/PerlIO-via-dynamic-0.12.tar.gz;
       sha256 = "140hay9q8q9sz1fa2s57ijp5l2448fkcg7indgn6k4vc7yshmqz2";
     };
-    propagatedBuildInputs = [];
   };
 
   perlPerlIOviasymlink = buildPerlPackage {
@@ -5046,7 +5492,6 @@ let
       url = mirror://cpan/authors/id/C/CL/CLKAO/PerlIO-via-symlink-0.05.tar.gz;
       sha256 = "0lidddcaz9anddqrpqk4zwm550igv6amdhj86i2jjdka9b1x81s1";
     };
-    propagatedBuildInputs = [];
   };
 
   perlModulePluggable = buildPerlPackage {
@@ -5070,6 +5515,15 @@ let
     propagatedBuildInputs = [perlUNIVERSALrequire];
   };
 
+  perlPodCoverage = buildPerlPackage rec {
+    name = "Pod-Coverage-0.19";
+    src = fetchurl {
+      url = "mirror://cpan/authors/id/R/RC/RCLAMP/${name}.tar.gz";
+      sha256 = "1krsz4zwmnmq3z29p5vmyr5fdzrn8v0sg6rf3qxk7xpxw4z5np84";
+    };
+    propagatedBuildInputs = [perlDevelSymdump];
+  };
+
   perlPodEscapes = buildPerlPackage {
     name = "Pod-Escapes-1.04";
     src = fetchurl {
@@ -5087,6 +5541,38 @@ let
     propagatedBuildInputs = [perlconstant perlPodEscapes];
   };
 
+  perlReadonly = buildPerlPackage rec {
+    name = "Readonly-1.03";
+    src = fetchurl {
+      url = "mirror://cpan/authors/id/R/RO/ROODE/${name}.tar.gz";
+      sha256 = "1shkyxajh6l87nif47ygnfxjwvqf3d3kjpdvxaff4957vqanii2k";
+    };
+  };
+
+  perlRegexpAssemble = buildPerlPackage rec {
+    name = "Regexp-Assemble-0.34";
+    src = fetchurl {
+      url = "mirror://cpan/authors/id/D/DL/DLAND/${name}.tar.gz";
+      sha256 = "173dnzi3dag88afr4xf5v0hki15cfaffyjimjfmvzv6gbx6fp96f";
+    };
+  };
+
+  perlRegexpCommon = buildPerlPackage rec {
+    name = "Regexp-Common-2.122";
+    src = fetchurl {
+      url = "mirror://cpan/authors/id/A/AB/ABIGAIL/${name}.tar.gz";
+      sha256 = "1mi411nfsx58nfsgjsbyck50x9d0yfvwqpw63iavajlpx1z38n8r";
+    };
+  };
+
+  perlRegexpCopy = buildPerlPackage rec {
+    name = "Regexp-Copy-0.06";
+    src = fetchurl {
+      url = "mirror://cpan/authors/id/J/JD/JDUNCAN/${name}.tar.gz";
+      sha256 = "09c8xb43p1s6ala6g4274az51mf33phyjkp66dpvgkgbi1xfnawp";
+    };
+  };
+
   perlReturnValue = buildPerlPackage {
     name = "Return-Value-1.302";
     src = fetchurl {
@@ -5100,6 +5586,14 @@ let
     src = fetchurl {
       url = mirror://cpan/authors/id/C/CH/CHOCOLATE/Scope-Guard-0.03.tar.gz;
       sha256 = "07x966fkqxlwnngxs7a2jrhabh8gzhjfpqq56n9gkwy7f340sayb";
+    };
+  };
+
+  perlScopeUpper = buildPerlPackage rec {
+    name = "Scope-Upper-0.06";
+    src = fetchurl {
+      url = "mirror://cpan/authors/id/V/VP/VPIT/${name}.tar.gz";
+      sha256 = "1qaf310wbfpjb0lmg3fpmhbfnjxqw3j47rj0w0f0cy4bgihi8l43";
     };
   };
 
@@ -5119,13 +5613,16 @@ let
     };
   };
 
-  perlSQLAbstractLimit = buildPerlPackage {
-    name = "SQL-Abstract-Limit-0.12";
+  perlSQLAbstractLimit = buildPerlPackage rec {
+    name = "SQL-Abstract-Limit-0.141";
     src = fetchurl {
-      url = mirror://cpan/authors/id/D/DA/DAVEBAIRD/SQL-Abstract-Limit-0.12.tar.gz;
-      sha256 = "1b8663l7myc54k40xmyq003v6xs1y6bhdm1jpahrv44wzcl60n7z";
+      url = "mirror://cpan/authors/id/D/DA/DAVEBAIRD/${name}.tar.gz";
+      sha256 = "1qqh89kz065mkgyg5pjcgbf8qcpzfk8vf1lgkbwynknadmv87zqg";
     };
-    propagatedBuildInputs = [perlSQLAbstract perlTestException perlDBI];
+    propagatedBuildInputs = [
+      perlSQLAbstract perlTestException perlDBI perlTestDeep
+    ];
+    buildInputs = [perlTestPod perlTestPodCoverage];
   };
 
   perlStringMkPasswd = buildPerlPackage {
@@ -5134,6 +5631,48 @@ let
       url = mirror://cpan/authors/id/C/CG/CGRAU/String-MkPasswd-0.02.tar.gz;
       sha256 = "0si4xfgf8c2pfag1cqbr9jbyvg3hak6wkmny56kn2qwa4ljp9bk6";
     };
+  };
+
+  perlSubExporter = buildPerlPackage rec {
+    name = "Sub-Exporter-0.982";
+    src = fetchurl {
+      url = "mirror://cpan/authors/id/R/RJ/RJBS/${name}.tar.gz";
+      sha256 = "0xf8q05k5xs3bw6qy3pnnl5d670njxsxbw2dprl7n50hf488cbvj";
+    };
+    propagatedBuildInputs = [perlSubInstall perlDataOptList perlParamsUtil];
+  };
+
+  perlSubIdentify = buildPerlPackage rec {
+    name = "Sub-Identify-0.04";
+    src = fetchurl {
+      url = "mirror://cpan/authors/id/R/RG/RGARCIA/${name}.tar.gz";
+      sha256 = "16g4dkmb4h5hh15jsq0kvsf3irrlrlqdv7qk6605wh5gjjwbcjxy";
+    };
+  };
+
+  perlSubInstall = buildPerlPackage rec {
+    name = "Sub-Install-0.925";
+    src = fetchurl {
+      url = "mirror://cpan/authors/id/R/RJ/RJBS/${name}.tar.gz";
+      sha256 = "1sccc4nwp9y24zkr42ww2gwg6zwax4madi9spsdym1pqna3nwnm6";
+    };
+  };
+
+  perlSubName = buildPerlPackage {
+    name = "Sub-Name-0.04";
+    src = fetchurl {
+      url = mirror://cpan/authors/id/X/XM/XMATH/Sub-Name-0.04.tar.gz;
+      sha256 = "1nlin0ag2krpmiyapp3lzb6qw2yfqvqmx57iz5zwbhr4pyi46bhb";
+    };
+  };
+
+  perlSubOverride = buildPerlPackage rec {
+    name = "Sub-Override-0.08";
+    src = fetchurl {
+      url = "mirror://cpan/authors/id/O/OV/OVID/${name}.tar.gz";
+      sha256 = "13s5zi6qz02q50vv4bmwdmhn9gvg0988fydjlrrv500g6hnyzlkj";
+    };
+    propagatedBuildInputs = [perlSubUplevel perlTestException];
   };
 
   perlSubUplevel = buildPerlPackage {
@@ -5171,16 +5710,17 @@ let
     propagatedBuildInputs = [subversion];
   };
 
-  perlTaskCatalystTutorial = buildPerlPackage {
-    name = "Task-Catalyst-Tutorial";
+  perlTaskCatalystTutorial = buildPerlPackage rec {
+    name = "Task-Catalyst-Tutorial-0.05";
     src = fetchurl {
-      url = mirror://cpan/authors/id/J/JR/JROCKWAY/Task-Catalyst-Tutorial-0.03.tar.gz;
-      sha256 = "1f9nqg8h455s8dah482hf78i3h2bilji26i5m3lzr2cxws98lsak";
+      url = "mirror://cpan/authors/id/M/MS/MSTROUT/${name}.tar.gz";
+      sha256 = "0mqn64bspz1rq6m62yvy1gvmm0swz8xfhh8rg2p024v7g2qcyiy8";
     };
     propagatedBuildInputs = [
-      perlCatalystRuntime perlCatalystManual perlCatalystDevel
+      perlCatalystManual perlCatalystRuntime perlCatalystDevel
       perlCatalystPluginSession perlCatalystPluginAuthentication
       perlCatalystPluginAuthenticationStoreDBIC
+      perlCatalystAuthenticationStoreDBIxClass
       perlCatalystPluginAuthorizationRoles
       perlCatalystPluginAuthorizationACL
       perlCatalystPluginHTMLWidget
@@ -5188,10 +5728,9 @@ let
       perlCatalystPluginStackTrace
       perlCatalystViewTT
       perlDBIxClass perlDBIxClassHTMLWidget
+      perlCatalystControllerHTMLFormFu
     ];
-    preConfigure = ''
-      substituteInPlace Makefile.PL --replace "'Catalyst::Manual' => 0," ""
-    '';
+    buildInputs = [perlTestPodCoverage];
   };
 
   perlTaskWeaken = buildPerlPackage {
@@ -5239,7 +5778,6 @@ let
       sha256 = "0cdl08k5v0wc9w20va5qw98ynlbs9ifwndgsix8qhi7h15sj8a5j";
     };
     propagatedBuildInputs = [perlTestTester perlTestNoWarnings];
-    postInstall = "ensureDir $out/lib/site_perl; mv $out/lib/5.* $out/lib/site_perl";
   };
 
   perlTestException = buildPerlPackage {
@@ -5259,6 +5797,14 @@ let
     };
   };
 
+  perlTestLongString = buildPerlPackage rec {
+    name = "Test-LongString-0.11";
+    src = fetchurl {
+      url = "mirror://cpan/authors/id/R/RG/RGARCIA/${name}.tar.gz";
+      sha256 = "0ln3117nfxzq7yxmfk77nnr7116inbjq4bf5v2p0hqlj4damx03d";
+    };
+  };
+
   perlTestMockObject = buildPerlPackage {
     name = "Test-MockObject-1.09";
     src = fetchurl {
@@ -5267,6 +5813,16 @@ let
     };
     propagatedBuildInputs = [perlTestException perlUNIVERSALisa perlUNIVERSALcan];
   };
+
+  perlTestMockTime = buildPerlPackage rec {
+    name = "Test-MockTime-0.09";
+    src = fetchurl {
+      url = "mirror://cpan/authors/id/D/DD/DDICK/${name}.tar.gz";
+      sha256 = "1j2riyikzyfkxsgkfdqirs7xa8q5d06b9klpk7l9sgydwqdvxdv3";
+    };
+  };
+
+  perlTestMore = perlTestSimple;
 
   perlTestNoWarnings = buildPerlPackage {
     name = "Test-NoWarnings-0.084";
@@ -5285,6 +5841,15 @@ let
     };
   };
 
+  perlTestPodCoverage = buildPerlPackage rec {
+    name = "Test-Pod-Coverage-1.08";
+    src = fetchurl {
+      url = "mirror://cpan/authors/id/P/PE/PETDANCE/${name}.tar.gz";
+      sha256 = "0y2md932zhbxdjwzskx0vmw2qy7jxkn87f9lb5h3f3vxxg1kcqz0";
+    };
+    propagatedBuildInputs = [perlPodCoverage];
+  };
+
   perlTestSimple = buildPerlPackage {
     name = "Test-Simple-0.84";
     src = fetchurl {
@@ -5292,7 +5857,6 @@ let
       sha256 = "030j47q3p46jfk60dsh2d5m7ip4nqz0fl4inqr8hx8b8q0f00r4l";
     };
     propagatedBuildInputs = [perlTestHarness];
-    postInstall = "ensureDir $out/lib/site_perl; mv $out/lib/5.* $out/lib/site_perl";
   };
 
   perlTestTester = buildPerlPackage {
@@ -5301,7 +5865,6 @@ let
       url = mirror://cpan/authors/id/F/FD/FDALY/Test-Tester-0.107.tar.gz;
       sha256 = "0qgmsl6s6xm39211lywyzwrlz0gcmax7fb8zipybs9yxfmwcvyx2";
     };
-    postInstall = "ensureDir $out/lib/site_perl; mv $out/lib/5.* $out/lib/site_perl";
   };
 
   perlTestWarn = buildPerlPackage {
@@ -5311,6 +5874,33 @@ let
       sha256 = "1y9g13bzvjsmg5v555zrl7w085jq40a47hfs4gc3k78s0bkwxbyi";
     };
     propagatedBuildInputs = [perlTestSimple perlTestException perlArrayCompare perlTreeDAGNode];
+    buildInputs = [perlTestPod];
+  };
+
+  perlTestWWWMechanize = buildPerlPackage rec {
+    name = "Test-WWW-Mechanize-1.24";
+    src = fetchurl {
+      url = "mirror://cpan/authors/id/P/PE/PETDANCE/${name}.tar.gz";
+      sha256 = "11knym5ppish78rk8r1hymvq1py43h7z8d6nk8p4ig3p246xx5qa";
+    };
+    propagatedBuildInputs = [
+      perlCarpAssertMore perlURI perlTestLongString perlWWWMechanize
+    ];
+    doCheck = false;
+  };
+
+  perlTestWWWMechanizeCatalyst = buildPerlPackage rec {
+    name = "Test-WWW-Mechanize-Catalyst-0.45";
+    src = fetchurl {
+      url = "mirror://cpan/authors/id/L/LB/LBROCARD/${name}.tar.gz";
+      sha256 = "0hixz0hibv2z87kdqvrphzgww0xibgg56w7bh299dgw2739hy4yf";
+    };
+    propagatedBuildInputs = [
+      perlCatalystRuntime perlTestWWWMechanize perlWWWMechanize
+      perlCatalystPluginSessionStateCookie
+    ];
+    buildInputs = [perlTestPod];
+    doCheck = false;
   };
 
   perlTextSimpleTable = buildPerlPackage {
@@ -5344,7 +5934,6 @@ let
       url = mirror://cpan/authors/id/G/GB/GBARR/TimeDate-1.16.tar.gz;
       sha256 = "1cvcpaghn7dc14m9871sfw103g3m3a00m2mrl5iqb0mmh40yyhkr";
     };
-    propagatedBuildInputs = [];
   };
 
   perlTimeHiRes = buildPerlPackage {
@@ -5353,7 +5942,6 @@ let
       url = mirror://cpan/authors/id/J/JH/JHI/Time-HiRes-1.9715.tar.gz;
       sha256 = "0pgqrfkysy3mdcx5nd0x8c80lgqb7rkb3nrkii3vc576dcbpvw0i";
     };
-    propagatedBuildInputs = [];
   };
 
   perlTreeDAGNode = buildPerlPackage {
@@ -5399,12 +5987,19 @@ let
     };
   };
 
-  perlUNIVERSALisa = buildPerlPackage {
-    name = "UNIVERSAL-isa-1.00";
+  perlUNIVERSALisa = stdenv.mkDerivation rec {
+    name = "UNIVERSAL-isa-1.01";
     src = fetchurl {
-      url = mirror://cpan/authors/id/C/CH/CHROMATIC/UNIVERSAL-isa-1.00_00.tar.gz;
-      sha256 = "04dj0z458k57l3phmq635bdmj3zzl2iy5dxp3yqaldc6g65wz0d0";
+      url = "mirror://cpan/authors/id/C/CH/CHROMATIC/${name}.tar.gz";
+      sha256 = "0iksklmfhiaxg2rsw827n97k1mris6dg596rdwk2gmrwl0rsk0wz";
     };
+    # Urgh, this package doesn't have a Makefile.PL.
+    buildInputs = [perl];
+    configurePhase = "perl Build.PL --prefix=$out";
+    buildPhase = "perl ./Build";
+    doCheck = true;
+    checkPhase = "perl ./Build test";
+    installPhase = "perl ./Build install";
   };
 
   perlUNIVERSALrequire = buildPerlPackage {
@@ -5415,12 +6010,22 @@ let
     };
   };
 
-  perlURI = buildPerlPackage {
-    name = "URI-1.35";
+  perlURI = buildPerlPackage rec {
+    name = "URI-1.37";
     src = fetchurl {
-      url = mirror://cpan/authors/id/G/GA/GAAS/URI-1.35.tar.gz;
-      md5 = "1a933b1114c41a25587ee59ba8376f7c";
+      url = "mirror://cpan/authors/id/G/GA/GAAS/${name}.tar.gz";
+      sha256 = "0amwbss2gz00fkdfnfixf1afmqal1246xhmj27g5c0ny7ahcid0j";
     };
+  };
+
+  perlWWWMechanize = buildPerlPackage rec {
+    name = "WWW-Mechanize-1.54";
+    src = fetchurl {
+      url = "mirror://cpan/authors/id/P/PE/PETDANCE/${name}.tar.gz";
+      sha256 = "1yxvw5xfng5fj4422869p5dwvmrkmqph9gdm2nl12wngydk93lnh";
+    };
+    propagatedBuildInputs = [perlLWP perlHTTPResponseEncoding perlHTTPServerSimple];
+    doCheck = false;
   };
 
   perlXMLDOM = buildPerlPackage {
@@ -5467,7 +6072,7 @@ let
       url = mirror://cpan/authors/id/M/MS/MSERGEANT/XML-Parser-2.36.tar.gz;
       sha256 = "0gyp5qfbflhkin1zv8l6wlkjwfjvsf45a3py4vc6ni82fj32kmcz";
     };
-    makeMakerFlags = "EXPATLIBPATH=${expat}/lib EXPATINCPATH=${expat}/include"; 
+    makeMakerFlags = "EXPATLIBPATH=${expat}/lib EXPATINCPATH=${expat}/include";
   };
 
   perlXMLRegExp = buildPerlPackage {
@@ -5519,25 +6124,22 @@ let
       url = mirror://cpan/authors/id/S/SA/SAPER/XSLoader-0.08.tar.gz;
       sha256 = "0mr4l3givrpyvz1kg0kap2ds8g0rza2cim9kbnjy8hi64igkixi5";
     };
-    propagatedBuildInputs = [];
   };
 
-  perlYAML = buildPerlPackage {
-    name = "YAML-0.66";
+  perlYAML = buildPerlPackage rec {
+    name = "YAML-0.68";
     src = fetchurl {
-      url = mirror://cpan/authors/id/I/IN/INGY/YAML-0.66.tar.gz;
-      sha256 = "1pcjf6y3l88ypa52mkk349jglabm53mhxda4p5awc1jl67lx3ngw";
+      url = "mirror://cpan/authors/id/I/IN/INGY/${name}.tar.gz";
+      sha256 = "0yg0pgsjkfczsblx03rxlw4ib92k0gwdyb1a258xb9wdg0w61h34";
     };
-    propagatedBuildInputs = [];
   };
 
-  perlYAMLSyck = buildPerlPackage {
-    name = "YAML-Syck-1.04";
+  perlYAMLSyck = buildPerlPackage rec {
+    name = "YAML-Syck-1.05";
     src = fetchurl {
-      url = mirror://cpan/authors/id/A/AU/AUDREYT/YAML-Syck-1.04.tar.gz;
-      sha256 = "180w77rxqwrfmd2jjmrd407bf8vnpry73941g5n61ippzic5x1v3";
+      url = "mirror://cpan/authors/id/A/AU/AUDREYT/${name}.tar.gz";
+      sha256 = "15acwp2qdxfmhfqj4c1s57xyy48hcfc87lblww3lbvihqbysyzss";
     };
-    propagatedBuildInputs = [];
   };
 
 
@@ -5579,6 +6181,10 @@ let
     inherit fetchurl stdenv python gmp;
   };
 
+  pycups = import ../development/python-modules/pycups {
+    inherit stdenv fetchurl python cups;
+  };
+
   pygame = import ../development/python-modules/pygame {
     inherit fetchurl stdenv python pkgconfig SDL SDL_image
       SDL_mixer SDL_ttf numeric;
@@ -5606,11 +6212,19 @@ let
     inherit python;
   };
 
+  sip = import ../development/python-modules/python-sip {
+    inherit stdenv fetchurl python;
+  };
+
   pyqt = builderDefsPackage (selectVersion ../development/python-modules/pyqt "4.3.3") {
     inherit pkgconfig python pythonSip;
     inherit (xlibs) libX11 libXext;
     inherit (gtkLibs) glib;
     qt = qt4;
+  };
+
+  pyqt4 = import ../development/python-modules/pyqt {
+    inherit stdenv fetchurl python sip qt4;
   };
 
   pyx = import ../development/python-modules/pyx {
@@ -5732,7 +6346,9 @@ let
       dbus hal avahi liboil libsamplerate libsndfile speex
       intltool gettext;
     inherit (gtkLibs) glib;
+    inherit (xlibs) libX11 libICE libSM;
     gconf = gnome.GConf;
+    alsaLib = alsa_1_0_19.alsaLib;  # Needs ALSA >= 1.0.17.
   };
 
   tomcat_connectors = import ../servers/http/apache-modules/tomcat-connectors {
@@ -5858,6 +6474,10 @@ let
     inherit fetchurl stdenv;
   };
 
+  acpid = import ../os-specific/linux/acpid {
+    inherit fetchurl stdenv;
+  };
+
   acpitool = import ../os-specific/linux/acpitool {
     inherit fetchurl stdenv;
   };
@@ -5867,8 +6487,15 @@ let
   };
 
   alsaLib = alsa.alsaLib;
-
   alsaUtils = alsa.alsaUtils;
+
+  # A newer ALSA.  Make it the default during the next `stdenv-updates' merge.
+  alsa_1_0_19 = import ../os-specific/linux/alsa/1.0.19.nix {
+    inherit fetchurl stdenv ncurses gettext;
+    version = "1.0.19";
+  };
+  alsaLib_1_0_19 = alsa_1_0_19.alsaLib;
+  alsaUtils_1_0_19 = alsa_1_0_19.alsaUtils;
 
   blcr = builderDefsPackage (selectVersion ../os-specific/linux/blcr "0.6.5"){
     inherit perl;
@@ -5880,6 +6507,12 @@ let
 
   bridge_utils = import ../os-specific/linux/bridge_utils {
     inherit fetchurl stdenv autoconf automake;
+  };
+
+  cpufrequtils = import ../os-specific/linux/cpufrequtils {
+    inherit fetchurl stdenv libtool gettext;
+    glibc = stdenv.gcc.libc;
+    kernelHeaders = stdenv.gcc.libc.kernelHeaders;
   };
 
   cryopid = import ../os-specific/linux/cryopid {
@@ -5932,7 +6565,7 @@ let
     inherit fetchurl stdenv;
   };
 
-  gpm = builderDefsPackage (selectVersion ../servers/gpm "1.20.3pre6") {
+  gpm = builderDefsPackage (selectVersion ../servers/gpm "1.20.6") {
     inherit lzma ncurses bison;
     flex = flex2535;
   };
@@ -6033,6 +6666,10 @@ let
     inherit fetchurl stdenv;
   };
 
+  kernelHeaders_2_6_28 = import ../os-specific/linux/kernel-headers/2.6.28.nix {
+    inherit fetchurl stdenv perl;
+  };
+
   kernelHeadersArm = import ../os-specific/linux/kernel-headers-cross {
     inherit fetchurl stdenv;
     cross = "arm-linux";
@@ -6083,14 +6720,6 @@ let
   kernel_2_6_21 = import ../os-specific/linux/kernel/linux-2.6.21.nix {
     inherit fetchurl stdenv perl mktemp module_init_tools;
     kernelPatches = [
-      { name = "ext3cow";
-        patch = ../os-specific/linux/kernel/linux-2.6.20.3-ext3cow.patch;
-        extraConfig =
-          "CONFIG_EXT3COW_FS=m\n" +
-          "CONFIG_EXT3COW_FS_XATTR=y\n" +
-          "CONFIG_EXT3COW_FS_POSIX_ACL=y\n" +
-          "CONFIG_EXT3COW_FS_SECURITY=y\n";
-      }
       /* Commented out because only acer users have need for it..
          It takes quite a while to create the patch when unpacking the kernel sources only for that task
       { name = "acerhk";
@@ -6112,7 +6741,7 @@ let
           "# CONFIG_PROC_MM_DUMPABLE is not set\n";
       }
       { name = "fbsplash-0.9.2-r5-2.6.21";
-        patch = fetchurl {
+        patch = fetchurl { # !!! missing!
           url = http://dev.gentoo.org/~dsd/genpatches/trunk/2.6.21/4200_fbsplash-0.9.2-r5.patch;
           sha256 = "00s8074fzsly2zpir885zqkvq267qyzg6vhsn7n1z2v1z78avxd8";
         };
@@ -6124,30 +6753,9 @@ let
   kernel_2_6_22 = import ../os-specific/linux/kernel/linux-2.6.22.nix {
     inherit fetchurl stdenv perl mktemp module_init_tools;
     kernelPatches = [
-      /*
-      { name = "ext3cow";
-        patch = ../os-specific/linux/kernel/linux-2.6.20.3-ext3cow.patch;
-        extraConfig =
-        "CONFIG_EXT3COW_FS=m\n" +
-        "CONFIG_EXT3COW_FS_XATTR=y\n" +
-        "CONFIG_EXT3COW_FS_POSIX_ACL=y\n" +
-        "CONFIG_EXT3COW_FS_SECURITY=y\n";
-      }
-      */
-      /*
-      { name = "skas-2.6.20-v9-pre9";
-        patch = fetchurl {
-          url = http://www.user-mode-linux.org/~blaisorblade/patches/skas3-2.6/skas-2.6.20-v9-pre9/skas-2.6.20-v9-pre9.patch.bz2;
-          md5 = "02e619e5b3aaf0f9768f03ac42753e74";
-        };
-        extraConfig =
-          "CONFIG_PROC_MM=y\n" +
-          "# CONFIG_PROC_MM_DUMPABLE is not set\n";
-      }
-      */
       { name = "fbsplash-0.9.2-r5-2.6.21";
         patch = fetchurl {
-          url = http://dev.gentoo.org/~dsd/genpatches/trunk/2.6.22/4200_fbsplash-0.9.2-r5.patch;
+          url = http://nixos.org/tarballs/4200_fbsplash-0.9.2-r5.patch;
           sha256 = "0822wwlf2dqsap5qslnnp0yl1nbvvvb76l73w2dd8zsyn0bqg3px";
         };
         extraConfig = "CONFIG_FB_SPLASH=y";
@@ -6160,64 +6768,6 @@ let
       lib.optional (getConfig ["kernel" "no_irqbalance"] false) "# CONFIG_IRQBALANCE is not set" ++
       [(getConfig ["kernel" "addConfig"] "")];
   };
-
-  kernel_2_6_21_ck = import ../os-specific/linux/kernel/linux-2.6.21_ck.nix {
-    inherit fetchurl stdenv perl mktemp module_init_tools;
-    kernelPatches = [
-      { name = "ext3cow";
-        patch = ../os-specific/linux/kernel/linux-2.6.20.3-ext3cow.patch;
-        extraConfig =
-        "CONFIG_EXT3COW_FS=m\n" +
-        "CONFIG_EXT3COW_FS_XATTR=y\n" +
-        "CONFIG_EXT3COW_FS_POSIX_ACL=y\n" +
-        "CONFIG_EXT3COW_FS_SECURITY=y\n";
-      }
-      { name = "Con Kolivas Patch";
-        patch = ../os-specific/linux/kernel/patch-2.6.21-ck1;
-      }
-      { name = "paravirt-nvidia";
-        patch = ../os-specific/linux/kernel/2.6.20-paravirt-nvidia.patch;
-      }
-      { name = "skas-2.6.20-v9-pre9";
-        patch = fetchurl {
-          url = http://www.user-mode-linux.org/~blaisorblade/patches/skas3-2.6/skas-2.6.20-v9-pre9/skas-2.6.20-v9-pre9.patch.bz2;
-          md5 = "02e619e5b3aaf0f9768f03ac42753e74";
-        };
-        extraConfig =
-          "CONFIG_PROC_MM=y\n" +
-          "# CONFIG_PROC_MM_DUMPABLE is not set\n";
-      }
-      { name = "fbsplash-0.9.2-r5-2.6.21";
-        patch = fetchurl {
-          url = http://dev.gentoo.org/~dsd/genpatches/trunk/2.6.21/4200_fbsplash-0.9.2-r5.patch;
-          sha256 = "00s8074fzsly2zpir885zqkvq267qyzg6vhsn7n1z2v1z78avxd8";
-        };
-        extraConfig = "CONFIG_FB_SPLASH=y";
-      }
-    ];
-  };
-
-  #kernel_2_6_25 = import ../os-specific/linux/kernel/linux-2.6.25.nix {
-  #  inherit fetchurl stdenv perl mktemp module_init_tools;
-  #  kernelPatches = [
-  #    { name = "fbcondecor-0.9.4-2.6.25-rc6";
-  #      patch = fetchurl {
-  #        url = http://dev.gentoo.org/~spock/projects/fbcondecor/archive/fbcondecor-0.9.4-2.6.25-rc6.patch;
-  #        sha256 = "1wm94n7f0qyb8xvafip15r158z5pzw7zb7q8hrgddb092c6ibmq8";
-  #      };
-  #      extraConfig = "CONFIG_FB_CON_DECOR=y";
-  #      features = { fbConDecor = true; };
-  #    }
-  #    { name = "sec_perm-2.6.24";
-  #      patch = ../os-specific/linux/kernel/sec_perm-2.6.24.patch;
-  #      features = { secPermPatch = true; };
-  #    }
-  #  ];
-  #  extraConfig =
-  #    lib.optional (getConfig ["kernel" "timer_stats"] false) "CONFIG_TIMER_STATS=y" ++
-  #    lib.optional (getConfig ["kernel" "no_irqbalance"] false) "# CONFIG_IRQBALANCE is not set" ++
-  #    [(getConfig ["kernel" "addConfig"] "")];
-  #};
 
   kernel_2_6_23 = import ../os-specific/linux/kernel/linux-2.6.23.nix {
     inherit fetchurl stdenv perl mktemp module_init_tools;
@@ -6239,7 +6789,7 @@ let
       */
       { name = "fbsplash-0.9.2-r5-2.6.21";
         patch = fetchurl {
-          url = http://dev.gentoo.org/~dsd/genpatches/trunk/2.6.22/4200_fbsplash-0.9.2-r5.patch;
+          url = http://nixos.org/tarballs/4200_fbsplash-0.9.2-r5.patch;
           sha256 = "0822wwlf2dqsap5qslnnp0yl1nbvvvb76l73w2dd8zsyn0bqg3px";
         };
         extraConfig = "CONFIG_FB_SPLASH=y";
@@ -6255,6 +6805,28 @@ let
           CONFIG_UNION_FS=m
           CONFIG_UNION_FS_XATTR=y
         '';
+      }
+    ];
+    extraConfig =
+      lib.optional (getConfig ["kernel" "timer_stats"] false) "CONFIG_TIMER_STATS=y" ++
+      lib.optional (getConfig ["kernel" "no_irqbalance"] false) "# CONFIG_IRQBALANCE is not set" ++
+      [(getConfig ["kernel" "addConfig"] "")];
+  };
+
+  kernel_2_6_25 = import ../os-specific/linux/kernel/linux-2.6.25.nix {
+    inherit fetchurl stdenv perl mktemp module_init_tools;
+    kernelPatches = [
+      { name = "fbcondecor-0.9.4-2.6.25-rc6";
+        patch = fetchurl {
+          url = http://dev.gentoo.org/~spock/projects/fbcondecor/archive/fbcondecor-0.9.4-2.6.25-rc6.patch;
+          sha256 = "1wm94n7f0qyb8xvafip15r158z5pzw7zb7q8hrgddb092c6ibmq8";
+        };
+        extraConfig = "CONFIG_FB_CON_DECOR=y";
+        features = { fbConDecor = true; };
+      }
+      { name = "sec_perm-2.6.24";
+        patch = ../os-specific/linux/kernel/sec_perm-2.6.24.patch;
+        features = { secPermPatch = true; };
       }
     ];
     extraConfig =
@@ -6291,6 +6863,27 @@ let
         patch = fetchurl {
           url = http://dev.gentoo.org/~spock/projects/fbcondecor/archive/fbcondecor-0.9.4-2.6.27.patch;
           sha256 = "170l9l5fvbgjrr4klqcwbgjg4kwvrrhjpmgbfpqj0scq0s4q4vk6";
+        };
+        extraConfig = "CONFIG_FB_CON_DECOR=y";
+        features = { fbConDecor = true; };
+      }
+      { name = "sec_perm-2.6.24";
+        patch = ../os-specific/linux/kernel/sec_perm-2.6.24.patch;
+        features = { secPermPatch = true; };
+      }
+    ];
+    extraConfig =
+      lib.optional (getConfig ["kernel" "no_irqbalance"] false) "# CONFIG_IRQBALANCE is not set" ++
+      [(getConfig ["kernel" "addConfig"] "")];
+  };
+
+  kernel_2_6_28 = import ../os-specific/linux/kernel/linux-2.6.28.nix {
+    inherit fetchurl stdenv perl mktemp module_init_tools;
+    kernelPatches = [
+      { name = "fbcondecor-0.9.5-2.6.28";
+        patch = fetchurl {
+          url = http://dev.gentoo.org/~spock/projects/fbcondecor/archive/fbcondecor-0.9.5-2.6.28.patch;
+          sha256 = "105q2dwrwi863r7nhlrvljim37aqv67mjc3lgg529jzqgny3fjds";
         };
         extraConfig = "CONFIG_FB_CON_DECOR=y";
         features = { fbConDecor = true; };
@@ -6350,32 +6943,10 @@ let
       inherit kernel;
     };
 
-    # Actually, klibc builds fine with the static kernelHeaders, but
-    # splashutils expects a klibc with patched headers...
-    klibc = composedArgsAndFun (import ../os-specific/linux/klibc) {
-      inherit fetchurl stdenv perl bison mktemp kernel;
-    };
-
-    klibcShrunk = composedArgsAndFun (import ../os-specific/linux/klibc/shrunk.nix) {
-      inherit stdenv klibc;
-    };
-
     splashutils =
       if kernel.features ? fbSplash then splashutils_13 else
       if kernel.features ? fbConDecor && system != "x86_64-linux" then splashutils_15 else
       null;
-
-    splashutils_13 = import ../os-specific/linux/splashutils/1.3.nix {
-      inherit fetchurl stdenv klibc;
-      zlib = zlibStatic;
-      libjpeg = libjpegStatic;
-    };
-
-    splashutils_15 = import ../os-specific/linux/splashutils/1.5.nix {
-      inherit fetchurl stdenv klibc;
-      zlib = zlibStatic;
-      libjpeg = libjpegStatic;
-    };
 
     ext3cowtools = import ../os-specific/linux/ext3cow-tools {
       inherit stdenv fetchurl;
@@ -6413,6 +6984,15 @@ let
       inherit fetchurl stdenv binutils pkgconfig kernel;
       inherit (gnome) gtk glib pango libglade;
     };
+
+    # Broken build, still. The install step fails, and I never tried to run that compiled.
+    virtualbox = import ../applications/virtualization/virtualbox/2.1.2.nix {
+      inherit stdenv fetchurl iasl dev86 libxslt libxml2 qt3 qt4 SDL hal
+          libcap libpng zlib kernel;
+      inherit (gtkLibs) glib;
+      inherit (xlibs) xproto libX11 libXext libXcursor;
+      inherit (gnome) libIDL;
+    };
   };
 
   # Build the kernel modules for the some of the kernels.
@@ -6420,14 +7000,15 @@ let
   #kernelPackages_2_6_25 = recurseIntoAttrs (kernelPackagesFor kernel_2_6_25);
   kernelPackages_2_6_26 = recurseIntoAttrs (kernelPackagesFor kernel_2_6_26);
   kernelPackages_2_6_27 = recurseIntoAttrs (kernelPackagesFor kernel_2_6_27);
+  kernelPackages_2_6_28 = recurseIntoAttrs (kernelPackagesFor kernel_2_6_28);
 
   # The current default kernel / kernel modules.
   #kernelPackages = kernelPackages_2_6_25;
   kernelPackages = kernelPackages_2_6_27;
   #kernel = kernelPackages.kernel;
 
-  customKernel = composedArgsAndFun (lib.sumTwoArgs (import ../os-specific/linux/kernel/linux.nix) {
-    inherit fetchurl stdenv perl mktemp module_init_tools lib;
+  customKernel = composedArgsAndFun (lib.sumTwoArgs (import ../os-specific/linux/kernel/generic.nix) {
+    inherit fetchurl stdenv perl mktemp module_init_tools;
   });
 
   libselinux = import ../os-specific/linux/libselinux {
@@ -6457,6 +7038,15 @@ let
     inherit fetchurl stdenv bison flex perl;
   };
 
+  klibc = composedArgsAndFun (import ../os-specific/linux/klibc) {
+    inherit fetchurl stdenv perl bison mktemp;
+    kernelHeaders = glibc.kernelHeaders;
+  };
+
+  klibcShrunk = composedArgsAndFun (import ../os-specific/linux/klibc/shrunk.nix) {
+    inherit stdenv klibc;
+  };
+
   kvm = kvm76;
 
   kvm57 = import ../os-specific/linux/kvm/57.nix {
@@ -6468,6 +7058,11 @@ let
   kvm76 = import ../os-specific/linux/kvm/76.nix {
     inherit fetchurl stdenv zlib e2fsprogs SDL alsaLib pkgconfig rsync;
     kernelHeaders = kernelHeaders_2_6_26;
+  };
+
+  kvm84 = import ../os-specific/linux/kvm/84.nix {
+    inherit fetchurl stdenv zlib e2fsprogs SDL alsaLib pkgconfig rsync;
+    kernelHeaders = kernelHeaders_2_6_28;
   };
 
   libcap = import ../os-specific/linux/libcap {
@@ -6497,11 +7092,6 @@ let
 
   mingetty = import ../os-specific/linux/mingetty {
     inherit fetchurl stdenv;
-  };
-
-  mkinitrd = import ../os-specific/linux/mkinitrd {
-    inherit fetchurl stdenv;
-    popt = popt110;
   };
 
   module_init_tools = import ../os-specific/linux/module-init-tools {
@@ -6606,6 +7196,18 @@ let
     inherit fetchurl stdenv;
   };
 
+  splashutils_13 = import ../os-specific/linux/splashutils/1.3.nix {
+    inherit fetchurl stdenv klibc;
+    zlib = zlibStatic;
+    libjpeg = libjpegStatic;
+  };
+
+  splashutils_15 = import ../os-specific/linux/splashutils/1.5.nix {
+    inherit fetchurl stdenv klibc;
+    zlib = zlibStatic;
+    libjpeg = libjpegStatic;
+  };
+
   squashfsTools = import ../os-specific/linux/squashfs {
     inherit fetchurl stdenv zlib;
   };
@@ -6643,6 +7245,11 @@ let
   tcpWrapper = import ../os-specific/linux/tcp-wrapper {
     inherit fetchurl stdenv;
   };
+
+  /*tuxracer = builderDefsPackage (import ../games/tuxracer) {
+    inherit mesa tcl freeglut;
+    inherit (xlibs) libX11 xproto;
+  };*/
 
   udev = import ../os-specific/linux/udev {
     inherit fetchurl stdenv;
@@ -6682,6 +7289,14 @@ let
     inherit fetchurl;
     stdenv = makeStaticBinaries stdenv;
   }));
+
+  utillinuxng = composedArgsAndFun (import ../os-specific/linux/util-linux-ng) {
+    inherit fetchurl stdenv e2fsprogs;
+  };
+
+  utillinuxngCurses = composedArgsAndFun (import ../os-specific/linux/util-linux-ng) {
+    inherit fetchurl stdenv e2fsprogs ncurses;
+  };
 
   wesnoth = import ../games/wesnoth {
     inherit fetchurl stdenv SDL SDL_image SDL_mixer SDL_net gettext zlib boost freetype;
@@ -6794,15 +7409,15 @@ let
   };
 
   manpages = import ../data/documentation/man-pages {
-     inherit fetchurl stdenv;
+    inherit fetchurl stdenv;
   };
 
   mph_2b_damase = import ../data/fonts/mph-2b-damase {
     inherit fetchurl stdenv unzip;
   };
 
-  shared_mime_info = selectVersion ../data/misc/shared-mime-info "0.23" {
-    inherit fetchurl stdenv perl perlXMLParser pkgconfig gettext libxml2;
+  shared_mime_info = import ../data/misc/shared-mime-info {
+    inherit fetchurl stdenv pkgconfig gettext intltool libxml2;
     inherit (gtkLibs) glib;
   };
 
@@ -6824,6 +7439,10 @@ let
 
   r5rs = import ../data/documentation/rnrs/r5rs.nix {
     inherit fetchurl stdenv texinfo;
+  };
+
+  themes = name: import (../data/misc/themes + ("/" + name + ".nix")) {
+    inherit fetchurl;
   };
 
   ttf_bitstream_vera = import ../data/fonts/ttf-bitstream-vera {
@@ -6994,7 +7613,7 @@ let
     inherit fetchurl stdenv ncurses;
   };
 
-  carrier = builderDefsPackage (selectVersion ../applications/networking/instant-messengers/carrier "2.4.2") {
+  carrier = builderDefsPackage (selectVersion ../applications/networking/instant-messengers/carrier "2.5.0") {
     inherit fetchurl stdenv pkgconfig perl perlXMLParser libxml2 openssl nss
       gtkspell aspell gettext ncurses avahi dbus dbus_glib python
       libtool automake autoconf;
@@ -7058,9 +7677,10 @@ let
     version = "0.6.2";
   };
 
-  compizBase = composedArgsAndFun (assert mesaSupported; selectVersion ../applications/window-managers/compiz "0.7.8") {
+  compizBase = composedArgsAndFun (assert mesaSupported; selectVersion ../applications/window-managers/compiz "0.8.0") {
     inherit lib builderDefs stringsWithDeps;
-    inherit fetchurl stdenv pkgconfig libpng mesa perl perlXMLParser libxslt gettext;
+    inherit fetchurl stdenv pkgconfig libpng mesa perl perlXMLParser libxslt gettext
+      intltool;
     inherit (xorg) libXcomposite libXfixes libXdamage libXrandr
       libXinerama libICE libSM libXrender xextproto compositeproto fixesproto
       damageproto randrproto xineramaproto renderproto kbproto xproto libX11
@@ -7115,8 +7735,18 @@ let
     python = pythonFull;
   };
 
+  comical = import ../applications/graphics/comical {
+    inherit stdenv fetchurl utillinux zlib;
+    inherit wxGTK;
+  };
+
   cua = import ../applications/editors/emacs-modes/cua {
     inherit fetchurl stdenv;
+  };
+
+  cuneiform = builderDefsPackage (import ../tools/graphics/cuneiform) {
+    inherit cmake patchelf;
+    imagemagick=imagemagick;
   };
 
   cvs = import ../applications/version-management/cvs {
@@ -7171,6 +7801,10 @@ let
 
   dmtx = builderDefsPackage (import ../tools/graphics/dmtx) {
     inherit libpng libtiff;
+  };
+
+  dvdauthor = import ../applications/video/dvdauthor {
+    inherit fetchurl stdenv freetype libpng fribidi libxml2 libdvdread imagemagick;
   };
 
   dwm = import ../applications/window-managers/dwm {
@@ -7232,14 +7866,16 @@ let
   };
 
   emacsUnicode = lowPrio (import ../applications/editors/emacs-unicode {
-    inherit fetchurl stdenv ncurses pkgconfig x11 Xaw3d
-      libpng libjpeg libungif libtiff;
+    inherit fetchcvs stdenv ncurses pkgconfig x11 Xaw3d
+      libpng libjpeg libungif libtiff texinfo dbus
+      autoconf automake;
     inherit (xlibs) libXaw libXpm libXft;
     inherit (gtkLibs) gtk;
     xawSupport = getPkgConfig "emacs" "xawSupport" false;
     xaw3dSupport = getPkgConfig "emacs" "xaw3dSupport" false;
     gtkGUI = getPkgConfig "emacs" "gtkSupport" true;
     xftSupport = getPkgConfig "emacs" "xftSupport" true;
+    dbusSupport = getPkgConfig "emacs" "dbusSupport" true;
   });
 
   emms = import ../applications/editors/emacs-modes/emms {
@@ -7319,6 +7955,27 @@ let
     #enableOfficialBranding = true;
   });
 
+  firefox3_1 = lowPrio (import ../applications/networking/browsers/firefox-3/3.1.nix {
+    inherit fetchurl stdenv pkgconfig perl zip libjpeg zlib cairo
+      python dbus dbus_glib freetype fontconfig bzip2;
+    inherit (gtkLibs) gtk pango;
+    inherit (gnome) libIDL;
+    inherit (alsa) alsaLib;
+    #enableOfficialBranding = true;
+    xulrunner = xulrunner3_1;
+    autoconf = autoconf213;
+  });
+
+  xulrunner3_1 = lowPrio (import ../applications/networking/browsers/firefox-3/xulrunner-3.1.nix {
+    inherit fetchurl stdenv pkgconfig perl zip libjpeg libpng zlib cairo
+      python dbus dbus_glib freetype fontconfig bzip2 xlibs file;
+    inherit (gtkLibs) gtk pango;
+    inherit (gnome) libIDL;
+    inherit (alsa) alsaLib;
+    autoconf = autoconf213;
+    #enableOfficialBranding = true;
+  });
+
   firefox3b1Bin = lowPrio (import ../applications/networking/browsers/firefox-3/binary.nix {
     inherit fetchurl stdenv pkgconfig perl zip libjpeg libpng zlib cairo
       python curl coreutils freetype fontconfig;
@@ -7330,11 +7987,9 @@ let
   firefox3Wrapper = wrapFirefox firefox3 "firefox" "";
   firefox3b1BinWrapper = lowPrio (wrapFirefox firefox3b1Bin "firefox" "");
 
-  flacAlts = import ../applications/audio/flac {
+  flac = import ../applications/audio/flac {
     inherit fetchurl stdenv libogg;
   };
-
-  flac = getVersion "flac" flacAlts;
 
   flashplayer = flashplayer10;
 
@@ -7370,32 +8025,10 @@ let
     inherit (gnome) gtk libgtkhtml libart_lgpl;
   };
 
-  git = import ../applications/version-management/git {
-    inherit fetchurl stdenv curl openssl zlib expat perl gettext
-      asciidoc texinfo xmlto docbook2x
-      docbook_xsl docbook_xml_dtd_42 libxslt
-      cpio tcl tk makeWrapper subversion;
-    svnSupport = getConfig ["git" "svnSupport"] false; # for git-svn support
-    guiSupport = getConfig ["git" "guiSupport"] false;
-    perlLibs = [perlLWP perlURI perlTermReadKey subversion];
-  };
-
-  gitGit = import ../applications/version-management/git/git-git.nix {
-    inherit fetchurl stdenv curl openssl zlib expat perl gettext
-      asciidoc texinfo xmlto docbook2x
-      docbook_xsl docbook_xml_dtd_42 libxslt
-      cpio tcl tk makeWrapper subversion autoconf;
-    inherit (bleedingEdgeRepos) sourceByName;
-    svnSupport = getConfig ["git" "svnSupport"] false; # for git-svn support
-    guiSupport = getConfig ["git" "guiSupport"] false;
-    perlLibs = [perlLWP perlURI perlTermReadKey subversion];
-  };
-
-  qgit = import ../applications/version-management/qgit {
-    inherit fetchurl stdenv;
-    inherit (xlibs) libXext libX11;
-    qt = qt3;
-  };
+  gitAndTools = recurseIntoAttrs (import ../applications/version-management/git-and-tools {
+    inherit pkgs;
+  });
+  git = gitAndTools.git;
 
   qjackctl = import ../applications/audio/qjackctl {
     inherit fetchurl stdenv alsaLib jackaudio;
@@ -7463,14 +8096,14 @@ let
   };
 
   icecat3 = lowPrio (import ../applications/networking/browsers/icecat-3 {
-    inherit fetchurl stdenv lzma pkgconfig perl zip libjpeg libpng zlib cairo
+    inherit fetchurl stdenv pkgconfig perl zip libjpeg libpng zlib cairo
       python dbus dbus_glib freetype fontconfig bzip2 xlibs;
     inherit (gnome) libIDL libgnomeui gnomevfs gtk pango;
   });
 
   icecatXulrunner3 = lowPrio (import ../applications/networking/browsers/icecat-3 {
     application = "xulrunner";
-    inherit fetchurl stdenv lzma pkgconfig perl zip libjpeg libpng zlib cairo
+    inherit fetchurl stdenv pkgconfig perl zip libjpeg libpng zlib cairo
       python dbus dbus_glib freetype fontconfig bzip2 xlibs;
     inherit (gnome) libIDL libgnomeui gnomevfs gtk pango;
   });
@@ -7650,6 +8283,11 @@ let
     inherit (xlibs) libXi;
   };
 
+  mozplugger = builderDefsPackage (import ../applications/networking/browsers/mozilla-plugins/mozplugger) {
+    inherit firefox;
+    inherit (xlibs) libX11 xproto;
+  };
+
   mpg321 = import ../applications/audio/mpg321 {
     inherit stdenv fetchurl libao libmad libid3tag zlib;
   };
@@ -7734,9 +8372,9 @@ let
     inherit fetchurl zlib glibc stdenv;
 # stdenv = overrideGCC stdenv gcc40;
     inherit (xlibs) libX11 libSM libICE libXt libXext;
-    qt = qt3;
+    qt = qt3gcc33;
     #33motif = lesstif;
-    libstdcpp5 = (if (stdenv.system == "i686-linux") then gcc33 /* stdc++ 3.8 is used */ else gcc).gcc;
+    libstdcpp5 = gcc33.gcc;
   };
 
   pan = import ../applications/networking/newsreaders/pan {
@@ -7747,7 +8385,7 @@ let
 
   pidgin = import ../applications/networking/instant-messengers/pidgin {
     inherit fetchurl stdenv pkgconfig perl perlXMLParser libxml2 nss
-      gtkspell aspell gettext ncurses avahi dbus dbus_glib lib;
+      gtkspell aspell gettext ncurses avahi dbus dbus_glib lib intltool;
     openssl = if (getConfig ["pidgin" "openssl"] true) then openssl else null;
     gnutls = if (getConfig ["pidgin" "gnutls"] false) then gnutls else null;
     GStreamer = gst_all.gstreamer;
@@ -7800,6 +8438,10 @@ let
     stdenv = overrideGCC stdenv gcc34;
   };
 
+  qemuSVN = import ../applications/virtualization/qemu/svn-6642.nix {
+    inherit fetchsvn SDL zlib which stdenv;
+  };
+
   qemuImage = composedArgsAndFun
     (selectVersion ../applications/virtualization/qemu/linux-img "0.2") {
     inherit builderDefs fetchurl stdenv;
@@ -7836,7 +8478,7 @@ let
   };
 
   rsync = import ../applications/networking/sync/rsync {
-    inherit fetchurl stdenv;
+    inherit fetchurl stdenv acl;
   };
 
   rxvt = import ../applications/misc/rxvt {
@@ -7858,7 +8500,7 @@ let
     inherit fetchurl stdenv;
     inherit glibc alsaLib freetype fontconfig libsigcxx gcc;
     inherit (xlibs) libSM libICE libXi libXrender libXrandr libXfixes libXcursor
-                    libXinerama libXext libX11;
+                    libXinerama libXext libX11 libXv libXScrnSaver;
   };
 
   slim = import ../applications/display-managers/slim {
@@ -7893,10 +8535,6 @@ let
     inherit fetchurl stdenv;
   };
 
-
-  stgit = import ../applications/version-management/stgit {
-    inherit fetchurl stdenv python git;
-  };
 
   stumpwm = builderDefsPackage (import ../applications/window-managers/stumpwm) {
     inherit clisp texinfo;
@@ -7994,6 +8632,10 @@ let
     withKde = pkgs.getConfig ["taskJuggler" "kde"] false;
   };
 
+  thinkingRock = import ../applications/misc/thinking-rock {
+    inherit fetchurl stdenv;
+  };
+
   thunderbird = import ../applications/networking/mailreaders/thunderbird-2.x {
     inherit fetchurl stdenv pkgconfig perl zip libjpeg libpng zlib cairo;
     inherit (gtkLibs) gtk;
@@ -8054,7 +8696,7 @@ let
     # optional features by passing
     # python
     # TODO mzschemeinterp perlinterp
-    inherit python /*x11*/;
+    inherit python perl tcl ruby /*x11*/;
 
     # optional features by flags
     flags = [ "X11" ]; # only flag "X11" by now
@@ -8135,6 +8777,11 @@ let
     inherit (xlibs) libX11 xproto xextproto libXext libXrandr randrproto;
   };
 
+  xaos = builderDefsPackage (import ../applications/graphics/xaos) {
+    inherit (xlibs) libXt libX11 libXext xextproto xproto;
+    inherit gsl aalib zlib libpng intltool gettext perl;
+  };
+
   xara = import ../applications/graphics/xara {
     inherit fetchurl stdenv autoconf automake libtool gettext cvs wxGTK
       pkgconfig libxml2 zip libpng libjpeg shebangfix perl freetype;
@@ -8197,9 +8844,16 @@ let
   };
 
   xneur = import ../applications/misc/xneur {
-    inherit fetchurl stdenv pkgconfig pcre libxml2 aspell;
+    inherit fetchurl stdenv pkgconfig pcre libxml2 aspell imlib2 xosd;
     GStreamer=gst_all.gstreamer;
-    inherit (xlibs) libX11 libXpm;
+    inherit (xlibs) libX11 libXpm libXt libXext;
+    inherit (gtkLibs) glib;
+  };
+
+  xneur_0_8 = import ../applications/misc/xneur/0.8.nix {
+    inherit fetchurl stdenv pkgconfig pcre libxml2 aspell imlib2 xosd;
+    GStreamer=gst_all.gstreamer;
+    inherit (xlibs) libX11 libXpm libXt libXext;
     inherit (gtkLibs) glib;
   };
 
@@ -8320,14 +8974,16 @@ let
   });
 
   fsg = import ../games/fsg {
-    inherit stdenv fetchurl pkgconfig;
+    inherit stdenv fetchurl pkgconfig mesa;
     inherit (gtkLibs) glib gtk;
+    inherit (xlibs) libX11 xproto;
     wxGTK = wxGTK28deps {unicode = false;};
   };
 
   fsgAltBuild = import ../games/fsg/alt-builder.nix {
-    inherit stdenv fetchurl;
+    inherit stdenv fetchurl mesa;
     wxGTK = wxGTK28deps {unicode = false;};
+    inherit (xlibs) libX11 xproto;
     stringsWithDeps = import ../lib/strings-with-deps.nix {
       inherit stdenv lib;
     };
@@ -8336,6 +8992,10 @@ let
 
   gemrb = import ../games/gemrb {
     inherit fetchurl stdenv SDL openal freealut zlib libpng python;
+  };
+
+  gnuchess = builderDefsPackage (import ../games/gnuchess) {
+    flex = flex2535;
   };
 
   lincity = builderDefsPackage (import ../games/lincity) {
@@ -8379,6 +9039,12 @@ let
     inherit fetchurl stdenv SDL zlib mpeg2dec;
   };
 
+  sgtpuzzles = builderDefsPackage (import ../games/sgt-puzzles) {
+    inherit (gtkLibs) gtk glib;
+    inherit pkgconfig;
+    inherit (xlibs) libX11;
+  };
+
   # You still can override by passing more arguments.
   spaceOrbit =  composedArgsAndFun (selectVersion ../games/orbit "1.01") {
     inherit fetchurl stdenv builderDefs mesa freeglut;
@@ -8391,6 +9057,11 @@ let
       libvorbis libogg gettext;
   };
 
+  teeworlds = import ../games/teeworlds {
+    inherit fetchurl stdenv python alsaLib mesa SDL;
+    inherit (xlibs) libX11;
+  };
+
   /*tpm = import ../games/thePenguinMachine {
     inherit stdenv fetchurl pil pygame SDL;
     python24 = python;
@@ -8398,6 +9069,20 @@ let
 
   ut2004demo = import ../games/ut2004demo {
     inherit fetchurl stdenv xlibs mesa;
+  };
+
+  xboard = builderDefsPackage (import ../games/xboard) {
+    inherit (xlibs) libX11 xproto libXt libXaw libSM
+      libICE libXmu libXext;
+    inherit gnuchess;
+  };
+
+  xsokoban = builderDefsPackage (import ../games/xsokoban) {
+    inherit (xlibs) libX11 xproto libXpm libXt;
+  };
+
+  zdoom = import ../games/zdoom {
+    inherit cmake stdenv fetchsvn SDL nasm p7zip zlib flac fmod libjpeg;
   };
 
   zoom = import ../games/zoom {
@@ -8412,6 +9097,10 @@ let
 
   ### DESKTOP ENVIRONMENTS
 
+
+  enlightenment = import ../desktops/enlightenment {
+    inherit stdenv fetchurl pkgconfig x11 xlibs dbus imlib2 freetype;
+  };
 
   gnome = recurseIntoAttrs (import ../desktops/gnome {
     inherit
@@ -8442,7 +9131,6 @@ let
       saneBackends chmlib python libzip gmp sqlite libidn runCommand lib
       openbabel ocaml facile stdenv jasper fam indilib libnova
       libarchive dbus bison;
-    #flac = builtins.getAttr "1.1.2" flacAlts;
     cdparanoia = cdparanoiaIII;
     inherit (xlibs)
       inputproto kbproto scrnsaverproto xextproto xf86miscproto
@@ -8453,6 +9141,10 @@ let
     inherit (gtkLibs) glib;
     qt = qt4;
     openexr = openexr_1_6_1 ;
+  });
+
+  kde42 = import ../desktops/kde-4.2 (pkgs // {
+    openexr = openexr_1_6_1;
   });
 
   kdebase = import ../desktops/kde/kdebase {
@@ -8471,6 +9163,12 @@ let
   };
 
   ### SCIENCE/BIOLOGY
+
+  alliance = import ../applications/science/electronics/alliance {
+    inherit fetchurl stdenv bison flex;
+    inherit (xlibs) xproto libX11 libXt libXpm;
+    motif = lesstif;
+  };
 
   arb = import ../applications/science/biology/arb {
     inherit fetchurl stdenv readline libpng zlib x11 lesstif93 freeglut perl;
@@ -8595,13 +9293,17 @@ let
   };
 
   ghostscript = import ../misc/ghostscript {
-    inherit fetchurl stdenv libjpeg libpng zlib x11;
+    inherit fetchurl stdenv libjpeg libpng libtiff zlib x11 pkgconfig
+      fontconfig cups openssl;
     x11Support = false;
+    cupsSupport = getPkgConfig "ghostscript" "cups" true;
   };
 
   ghostscriptX = lowPrio (appendToName "with-X" (import ../misc/ghostscript {
-    inherit fetchurl stdenv libjpeg libpng zlib x11;
+    inherit fetchurl stdenv libjpeg libpng libtiff zlib x11 pkgconfig
+      fontconfig cups openssl;
     x11Support = true;
+    cupsSupport = getPkgConfig "ghostscript" "cups" true;
   }));
 
   gxemul = (import ../misc/gxemul) {
@@ -8709,7 +9411,7 @@ let
   };
 
   psi = builderDefsPackage
-    (selectVersion ../applications/networking/instant-messengers/psi "0.11")
+    (selectVersion ../applications/networking/instant-messengers/psi "0.12")
     {
       inherit builderDefs zlib aspell sox openssl;
       inherit (xlibs) xproto libX11 libSM libICE;
@@ -8765,7 +9467,7 @@ let
   */
 
   texFunctions = import ../misc/tex/nix {
-    inherit stdenv perl tetex graphviz ghostscript makeFontsConf;
+    inherit stdenv perl tetex graphviz ghostscript makeFontsConf imagemagick;
   };
 
   texLive = builderDefsPackage (import ../misc/tex/texlive) {
@@ -8842,6 +9544,10 @@ let
       saneBackends saneFrontends;
     inherit (gtkLibs) gtk;
     inherit (xlibs) libX11;
+  };
+
+  yafc = import ../applications/networking/yafc {
+    inherit fetchurl stdenv readline openssh;
   };
 
   myEnvFun = import ../misc/my-env {
