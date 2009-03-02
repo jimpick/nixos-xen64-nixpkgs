@@ -2155,6 +2155,10 @@ let
     inherit fetchurl stdenv rubygems makeWrapper;
   };
 
+  rubygem_rack = import ../jim-custom/rubygem-rack {
+    inherit fetchurl stdenv rubygems makeWrapper;
+  };
+
   jim_json_test = import ../jim-custom/jim-json-test {
     inherit fetchurl stdenv rubygems rubygem_json makeWrapper;
   };
