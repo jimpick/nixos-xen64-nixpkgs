@@ -1,9 +1,22 @@
-{stdenv, fetchurl, rubygems}:
+{stdenv, fetchurl, rubygems, makeWrapper}:
 
 stdenv.mkDerivation {
   name = "rubygem-json-1.1.3";
-  builder = ./builder.sh;
-  
+
+  buildInputs = [rubygems makeWrapper];
+
+  inherit rubygems;
+
+  phases = "doInstall postInstall";
+
+  doInstall = ''
+    gem install -i $out $src
+  '';
+
+  postInstall = ''
+    wrapProgram $out/bin/edit_json.rb --prefix RUBYLIB : $rubygems/lib --prefix GEM_PATH : $out
+  '';
+
   src = fetchurl {
     #url = mirror://gnu/hello/hello-2.3.tar.bz2;
     url = file:///Library/Ruby/Gems/1.8/cache/json-1.1.3.gem;
@@ -18,5 +31,4 @@ stdenv.mkDerivation {
     homepage = http://json.rubyforge.org;
   };
 
-  inherit rubygems;
 }
