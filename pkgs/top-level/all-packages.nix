@@ -2151,6 +2151,14 @@ let
     inherit ruby makeWrapper;
   };
 
+  rubygem_json = import ../jim-custom/rubygem-json {
+    inherit fetchurl stdenv rubygems;
+  };
+
+  jim_json_test = import ../jim-custom/jim-json-test {
+    inherit fetchurl stdenv rubygem_json;
+  };
+
   rq = import ../applications/networking/cluster/rq {
     inherit fetchurl stdenv sqlite ruby ;
   };
