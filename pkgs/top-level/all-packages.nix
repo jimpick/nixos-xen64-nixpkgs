@@ -2156,7 +2156,7 @@ let
   };
 
   jim_json_test = import ../jim-custom/jim-json-test {
-    inherit fetchurl stdenv rubygem_json;
+    inherit fetchurl stdenv rubygems rubygem_json makeWrapper;
   };
 
   rq = import ../applications/networking/cluster/rq {
