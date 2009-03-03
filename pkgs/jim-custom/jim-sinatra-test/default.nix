@@ -5,7 +5,7 @@ stdenv.mkDerivation {
 
   buildInputs = [makeWrapper];
 
-  inherit rubygems rubygem_sinatra;
+  inherit rubygems rubygem_rack rubygem_sinatra;
 
   src = ./jim-sinatra-test.rb;
 

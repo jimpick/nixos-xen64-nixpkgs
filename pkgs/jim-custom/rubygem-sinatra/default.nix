@@ -1,11 +1,11 @@
-{stdenv, fetchurl, rubygems}:
+{stdenv, fetchurl, rubygems, rubygem_rack}:
 
 stdenv.mkDerivation {
   name = "rubygem-sinatra-0.9.0.4";
 
   buildInputs = [rubygems];
 
-  inherit rubygems;
+  inherit rubygems rubygem_rack;
 
   phases = "doInstall";
 
