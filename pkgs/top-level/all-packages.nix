@@ -2167,6 +2167,10 @@ let
     inherit fetchurl stdenv rubygems rubygem_json makeWrapper;
   };
 
+  jim_sinatra_test = import ../jim-custom/jim-sinatra-test {
+    inherit fetchurl stdenv rubygems rubygem_rack rubygem_sinatra makeWrapper;
+  };
+
   rq = import ../applications/networking/cluster/rq {
     inherit fetchurl stdenv sqlite ruby ;
   };
