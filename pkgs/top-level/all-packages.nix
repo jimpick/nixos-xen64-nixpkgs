@@ -2159,6 +2159,10 @@ let
     inherit fetchurl stdenv rubygems makeWrapper;
   };
 
+  rubygem_sinatra = import ../jim-custom/rubygem-sinatra {
+    inherit fetchurl stdenv rubygems;
+  };
+
   jim_json_test = import ../jim-custom/jim-json-test {
     inherit fetchurl stdenv rubygems rubygem_json makeWrapper;
   };
